@@ -1,0 +1,4 @@
+interface:
+  display_name: "上下文增量同步器"
+  short_description: "把用户原话、详细问答、代码引用和文件变更按增量方式追加到 E:/all-context 归档 Markdown"
+  default_prompt: "Use $context-incremental-sync to append the current or historical conversation into a Markdown archive under E:/all-context with detailed Q&A, normalized caller tool identification, code references, and append-only history semantics."

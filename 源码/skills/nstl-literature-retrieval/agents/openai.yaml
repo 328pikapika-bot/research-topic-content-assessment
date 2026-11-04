@@ -1,0 +1,4 @@
+interface:
+  display_name: "NSTL 统一文献检索复用"
+  short_description: "复用 NSTL 统一文献检索能力"
+  default_prompt: "使用本技能为智能体接入 NSTL 统一文献检索客户端，并按统一契约完成检索结果映射。"

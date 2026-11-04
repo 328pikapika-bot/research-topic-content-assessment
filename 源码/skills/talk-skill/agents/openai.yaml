@@ -1,0 +1,4 @@
+interface:
+  display_name: "Talk Skill"
+  short_description: "整理AI历史讨论为结构化Markdown文档并保留AI原文"
+  default_prompt: "Use $talk-skill to整理我与AI的历史对话，并生成保留AI原文的Markdown讨论文档。"

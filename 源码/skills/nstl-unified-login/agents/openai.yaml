@@ -1,0 +1,4 @@
+interface:
+  display_name: "NSTL统一登录"
+  short_description: "接入NSTL统一认证登录与用户隔离"
+  default_prompt: "使用 $nstl-unified-login 为当前智能体接入NSTL统一认证登录、X-User-Scope和后端用户隔离。"

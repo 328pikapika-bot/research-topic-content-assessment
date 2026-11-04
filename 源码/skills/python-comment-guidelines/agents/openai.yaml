@@ -1,0 +1,7 @@
+interface:
+  display_name: "Python Comment Guidelines"
+  short_description: "Python 注释清晰、克制、可维护"
+  default_prompt: "Use $python-comment-guidelines when editing Python code in this project."
+
+policy:
+  allow_implicit_invocation: true
