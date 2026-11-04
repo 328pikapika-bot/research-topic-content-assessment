@@ -1,0 +1,31 @@
+[project]
+name = "content-assessment-agent"
+version = "0.1.0"
+description = "内容评估智能体 — 基于 DeepSeek API 的科研内容评估服务"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1.0",
+  "uvicorn[standard]>=0.30,<1.0",
+  "pydantic>=2.7,<3.0",
+  "langgraph>=0.2,<1.0",
+  "pymongo>=3.13,<4.0",
+  "python-dotenv>=1.0,<2.0",
+  "httpx>=0.28,<1.0",
+  "requests>=2.31,<3.0",
+  "python-docx>=1.1,<2.0",
+  "python-multipart>=0.0.9,<1.0",
+  "PyMuPDF>=1.24,<2.0",
+]
+authors = [{name = "ContentAssessment Agent Team"}]
+license = {text = "Apache-2.0"}
+
+[project.urls]
+Homepage = "https://example.invalid"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
