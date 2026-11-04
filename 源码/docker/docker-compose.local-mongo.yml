@@ -1,0 +1,47 @@
+# Local MongoDB override.
+# Use with:
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.local-mongo.yml up -d
+
+services:
+  mongo:
+    image: ${MONGO_IMAGE:-mongo:7}
+    container_name: content-assessment-mongo
+    restart: unless-stopped
+    ports:
+      - "${MONGO_LOCAL_PORT:-27018}:27017"
+    environment:
+      - TZ=Asia/Shanghai
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:?Set MONGO_PASSWORD in .env}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE:-content_assessment_agent}
+    volumes:
+      - content-assessment-mongo-data:/data/db
+      - ../database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mongosh --quiet --username \"$${MONGO_INITDB_ROOT_USERNAME}\" --password \"$${MONGO_INITDB_ROOT_PASSWORD}\" --authenticationDatabase admin --eval \"db.adminCommand('ping')\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+    networks:
+      - content-assessment-net
+
+  backend:
+    environment:
+      - MONGO_ENV=local
+      - MONGO_LOCAL_HOST=mongo
+      - MONGO_LOCAL_PORT=27017
+      - MONGO_HOST=mongo
+      - MONGO_PORT=27017
+      - MONGO_INSTANCE_ID=${MONGO_INSTANCE_ID:-}
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  content-assessment-mongo-data:
+    name: content-assessment-mongo-data

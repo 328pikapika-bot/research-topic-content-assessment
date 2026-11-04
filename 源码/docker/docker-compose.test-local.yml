@@ -1,0 +1,17 @@
+services:
+  backend:
+    volumes:
+      - content-assessment-uploads:/app/data/uploads
+      - content-assessment-logs:/app/data/logs
+
+  frontend:
+    image: nstl/content-assessment/content-assessment-frontend:v1.0.1
+    environment:
+      - BACKEND_HOST=content-assessment-backend-test
+      - BACKEND_PORT=38002
+
+volumes:
+  content-assessment-logs:
+    name: content-assessment-logs
+  content-assessment-uploads:
+    name: content-assessment-uploads

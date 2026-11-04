@@ -1,0 +1,23 @@
+version: "3.6"
+#数据中台-BI前端
+services:
+  service:
+    networks:
+      - NSTL-overlay   #网络名称
+    image: nstl/smartbi/web-frontend:v1.0.1
+    container_name: smartbi-web-frontend
+    ports:
+      - "8009:80"
+    extra_hosts:
+      - "smartbi-service-backend:127.0.0.1"
+    environment:
+      - TZ=Asia/Shanghai
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m #日志文件大小 50m 5g
+    
+networks:
+  NSTL-overlay:  #网络名称
+    external: true #已经定义的网络

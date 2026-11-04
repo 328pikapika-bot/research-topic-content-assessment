@@ -1,0 +1,140 @@
+# 内容评估智能体测试环境 Portainer Stack
+#
+# 部署目标：127.0.0.1
+# 对外端口：前端 18100，后端 17613
+# 容器端口：前端 38003，后端 38002
+#
+# 远程镜像由 tcp://127.0.0.1:2375 构建并推送到：
+# docker-hosted.example.invalid/nstl/content-assessment/
+#
+# 模型配置：
+# 1. 当前内容评估主链路使用 server_v4_flash / deepseek-v4-flash。
+# 2. 后端启动前会重新写入 /app/.runtime/model_profile.txt，避免镜像内 profile
+#    与 Portainer 运行配置不一致。
+# 3. API Key 不写入本文件或镜像，必须通过 Portainer 环境变量注入。
+#
+# NSTL-overlay 是测试环境已有外部网络，本 Stack 不创建或删除它。
+
+services:
+  # 后端 FastAPI 服务。服务名和网络别名使用项目唯一前缀，避免与同机好问题智能体冲突。
+  content_assessment_backend:
+    image: ${REGISTRY:-docker-hosted.example.invalid/nstl}/${IMAGE_NAMESPACE:-content-assessment}/content-assessment-backend:${IMAGE_TAG:-v1.1.0}
+    container_name: content-assessment-backend-test
+    restart: always
+    ports:
+      # 左侧是服务器宿主机端口，右侧是容器内部 FastAPI 端口。
+      - "${BACKEND_PUBLISHED_PORT:-17613}:38002"
+    # 与好问题智能体一致：容器每次启动时显式锁定模型 profile。
+    command:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /app/.runtime
+        printf '%s\n' 'server_v4_flash' > /app/.runtime/model_profile.txt
+        exec python -m uvicorn app.main:app --host 0.0.0.0 --port 38002
+    environment:
+      - TZ=Asia/Shanghai
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app/backend
+      - ENV=test
+      - BACKEND_PORT=38002
+      - LOG_DIR=/app/data/logs
+      - UPLOAD_DIR=/app/data/uploads
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://127.0.0.1:18100,http://localhost:18100,http://127.0.0.1:18100,https://www.nstl.gov.cn}
+      - ALLOW_DEFAULT_USER_SCOPE=${ALLOW_DEFAULT_USER_SCOPE:-false}
+      - CONTENT_ASSESSMENT_MOCK_AUTH_ENABLED=${CONTENT_ASSESSMENT_MOCK_AUTH_ENABLED:-false}
+      - CONTENT_ASSESSMENT_MOCK_USERS=${CONTENT_ASSESSMENT_MOCK_USERS:-}
+      - MONGO_ENV=${MONGO_ENV:-test}
+      - MONGO_LOCAL_HOST=${MONGO_LOCAL_HOST:-127.0.0.1}
+      - MONGO_TEST_HOST=${MONGO_TEST_HOST:-127.0.0.1}
+      - MONGO_LOCAL_PORT=${MONGO_LOCAL_PORT:-27018}
+      - MONGO_TEST_PORT=${MONGO_TEST_PORT:-27017}
+      - MONGO_HOST=${MONGO_HOST:-127.0.0.1}
+      - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_DATABASE=${MONGO_DATABASE:-content_assessment_agent}
+      - MONGO_USERNAME=${MONGO_USERNAME:-}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+      - MONGO_INSTANCE_ID=${MONGO_INSTANCE_ID:-test}
+      - CONTENT_ASSESSMENT_TASK_COLLECTION=${CONTENT_ASSESSMENT_TASK_COLLECTION:-content_assessment_tasks}
+      - CONTENT_ASSESSMENT_EVENT_COLLECTION=${CONTENT_ASSESSMENT_EVENT_COLLECTION:-content_assessment_task_events}
+      - CONTENT_ASSESSMENT_PARSED_FILE_COLLECTION=${CONTENT_ASSESSMENT_PARSED_FILE_COLLECTION:-content_assessment_parsed_files}
+      - CONTENT_ASSESSMENT_FEEDBACK_COLLECTION=${CONTENT_ASSESSMENT_FEEDBACK_COLLECTION:-content_assessment_feedback}
+      - CONTENT_ASSESSMENT_FEEDBACK_UPLOAD_DIR=/app/data/uploads/feedback
+
+      # 测试环境模型配置。deepseek-v4-flash 通过 OpenAI-compatible
+      # /v1/chat/completions 调用，API Key 由 Portainer 注入。
+      - CONTENT_ASSESSMENT_LLM_ENABLED=${CONTENT_ASSESSMENT_LLM_ENABLED:-true}
+      - CONTENT_ASSESSMENT_LLM_API_URL=${CONTENT_ASSESSMENT_LLM_API_URL:-http://127.0.0.1:16703/v1}
+      - CONTENT_ASSESSMENT_LLM_API_KEY=${CONTENT_ASSESSMENT_LLM_API_KEY:-}
+      - CONTENT_ASSESSMENT_LLM_MODEL_NAME=${CONTENT_ASSESSMENT_LLM_MODEL_NAME:-deepseek-v4-flash}
+      - CONTENT_ASSESSMENT_LLM_TIMEOUT_SECONDS=${CONTENT_ASSESSMENT_LLM_TIMEOUT_SECONDS:-90}
+      - CONTENT_ASSESSMENT_LLM_MAX_RETRIES=${CONTENT_ASSESSMENT_LLM_MAX_RETRIES:-0}
+      - CONTENT_ASSESSMENT_LLM_TEMPERATURE=${CONTENT_ASSESSMENT_LLM_TEMPERATURE:-0.1}
+
+      # 外部文献检索和敏感内容检测服务。
+      - LITERATURE_SEARCH_API_URL=${LITERATURE_SEARCH_API_URL:-http://127.0.0.1:37899/get_milvus_by_llama_index}
+      - LITERATURE_SEARCH_TIMEOUT=${LITERATURE_SEARCH_TIMEOUT:-600}
+      - SENSITIVE_CHECK_API_URL=${SENSITIVE_CHECK_API_URL:-http://127.0.0.1:16673/api/v1/ai-search/sensitive/text}
+      - CONTENT_ASSESSMENT_SENSITIVE_CHECK_CHUNK_SIZE=${CONTENT_ASSESSMENT_SENSITIVE_CHECK_CHUNK_SIZE:-16384}
+      - CONTENT_ASSESSMENT_SENSITIVE_CHECK_TIMEOUT_SECONDS=${CONTENT_ASSESSMENT_SENSITIVE_CHECK_TIMEOUT_SECONDS:-10}
+      - MAX_CONCURRENT_TASKS_PER_USER=${MAX_CONCURRENT_TASKS_PER_USER:-5}
+      - MAX_CONCURRENT_TASKS_GLOBAL=${MAX_CONCURRENT_TASKS_GLOBAL:-16}
+    volumes:
+      # 只持久化上传文件和日志，不覆盖 /app 代码目录。
+      - ${CONTENT_ASSESSMENT_UPLOADS_DIR:-/data/nstl_service/content-assessment-backend/uploads}:/app/data/uploads
+      - ${CONTENT_ASSESSMENT_LOGS_DIR:-/data/nstl_service/content-assessment-backend/logs}:/app/data/logs
+    networks:
+      NSTL-overlay:
+        aliases:
+          - content-assessment-backend
+    healthcheck:
+      # 健康检查访问容器内部端口，不使用宿主机端口 17613。
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:38002/system/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+
+  # 前端 Nginx 静态站点和 API 反向代理。
+  content_assessment_frontend:
+    image: ${REGISTRY:-docker-hosted.example.invalid/nstl}/${IMAGE_NAMESPACE:-content-assessment}/content-assessment-frontend:${IMAGE_TAG:-v1.1.0}
+    container_name: content-assessment-frontend-test
+    restart: always
+    ports:
+      # 左侧是服务器宿主机端口，右侧是容器内部 Nginx 端口。
+      - "${FRONTEND_PUBLISHED_PORT:-18100}:38003"
+    environment:
+      - TZ=Asia/Shanghai
+      - BACKEND_HOST=content-assessment-backend
+      - BACKEND_PORT=38002
+    # 与同服务器其他智能体保持一致的测试环境域名解析。
+    extra_hosts:
+      - "www.nstl.gov.cn:127.0.0.1"
+      - "login.nstl.gov.cn:127.0.0.1"
+      - "test-mongodb.example.invalid:127.0.0.1"
+    depends_on:
+      content_assessment_backend:
+        condition: service_healthy
+    networks:
+      - NSTL-overlay
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:38003/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+
+# 使用测试环境已有外部网络，不由 Stack 创建。
+networks:
+  NSTL-overlay:
+    name: ${CONTENT_ASSESSMENT_DOCKER_NETWORK:-NSTL-overlay}
+    external: true

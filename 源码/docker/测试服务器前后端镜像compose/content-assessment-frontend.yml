@@ -1,0 +1,27 @@
+version: "3.6"
+
+services:
+  service:
+    image: docker-hosted.example.invalid/nstl/content-assessment/content-assessment-frontend:v1.0.1
+    container_name: content-assessment-frontend
+    restart: always
+    networks:
+      - NSTL-overlay
+    environment:
+      - TZ=Asia/Shanghai
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=38002
+    extra_hosts:
+      - "www.nstl.gov.cn:127.0.0.1"
+      - "login.nstl.gov.cn:127.0.0.1"
+      - "test-mongodb.example.invalid:127.0.0.1"
+    ports:
+      - "18100:38003"
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+
+networks:
+  NSTL-overlay:
+    external: true

@@ -1,0 +1,13 @@
+# Local Docker Desktop override for NSTL retrieval.
+#
+# Docker Desktop containers may not inherit the host VPN/intranet route to
+# 127.0.0.1. Start scripts/start-nstl-retrieval-proxy.ps1 on the host, then
+# run compose with this override so the backend reaches NSTL through
+# host.docker.internal.
+
+services:
+  backend:
+    environment:
+      - LITERATURE_SEARCH_API_URL=${LOCAL_LITERATURE_SEARCH_API_URL:-http://host.docker.internal:37898/get_milvus_by_llama_index}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

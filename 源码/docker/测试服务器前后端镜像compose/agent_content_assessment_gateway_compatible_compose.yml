@@ -1,0 +1,59 @@
+version: "3.6"
+
+# Gateway-compatible test deployment (legacy alternative to docker-compose.test.yml):
+# - Gateway should proxy to frontend host port: http://127.0.0.1:18100
+# - Gateway should keep /api/service/nstl/ai/agent/content-assessment/** unchanged
+# - Frontend nginx rewrites /api/service/nstl/ai/agent/content-assessment/v1/... to backend /v1/...
+# - Do not use the generic backend alias on the shared NSTL-overlay network
+
+services:
+  web:
+    image: docker-hosted.example.invalid/nstl/content-assessment/content-assessment-frontend:v1.0.1
+    container_name: agent_content_assessment_web
+    restart: always
+    networks:
+      - NSTL-overlay
+    environment:
+      - TZ=Asia/Shanghai
+      - BACKEND_HOST=agent-content-assessment-backend
+      - BACKEND_PORT=38002
+    extra_hosts:
+      - "www.nstl.gov.cn:127.0.0.1"
+      - "login.nstl.gov.cn:127.0.0.1"
+      - "test-mongodb.example.invalid:127.0.0.1"
+    ports:
+      - "18100:38003"
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+
+  service:
+    image: docker-hosted.example.invalid/nstl/content-assessment/content-assessment-backend:v1.0.1
+    container_name: agent_content_assessment_service
+    restart: always
+    networks:
+      NSTL-overlay:
+        aliases:
+          - agent-content-assessment-backend
+    ports:
+      - "17613:38002"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /data/nstl_service/content-assessment-backend/logs:/app/data/logs
+      - /data/nstl_service/content-assessment-backend/uploads:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:38002/system/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+
+networks:
+  NSTL-overlay:
+    external: true

@@ -1,0 +1,112 @@
+# Reproducible source-built local stack. Use .env.local for local-only values.
+services:
+  mongo:
+    image: ${MONGO_IMAGE:-mongo:7}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MONGO_LOCAL_PORT:-27018}:27017"
+    environment:
+      TZ: Asia/Shanghai
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:?Set MONGO_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-content_assessment_agent}
+    volumes:
+      - mongo-data:/data/db
+      - ../database/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mongosh --quiet --username "$${MONGO_INITDB_ROOT_USERNAME}" --password "$${MONGO_INITDB_ROOT_PASSWORD}" --authenticationDatabase admin --eval "db.adminCommand('ping').ok" | grep -q 1
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 6
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.11-slim-bookworm}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${BACKEND_PUBLISHED_PORT:-17607}:38002"
+    environment:
+      MONGO_ENV: local
+      MONGO_LOCAL_HOST: mongo
+      MONGO_LOCAL_PORT: "27017"
+      MONGO_HOST: mongo
+      MONGO_PORT: "27017"
+      MONGO_DATABASE: ${MONGO_DATABASE:-content_assessment_agent}
+      MONGO_USERNAME: ${MONGO_USERNAME:?Set MONGO_USERNAME in .env}
+      MONGO_PASSWORD: ${MONGO_PASSWORD}
+      MONGO_AUTH_SOURCE: ${MONGO_AUTH_SOURCE:-admin}
+      CONTENT_ASSESSMENT_LLM_ENABLED: ${CONTENT_ASSESSMENT_LLM_ENABLED:-false}
+      CONTENT_ASSESSMENT_LLM_API_URL: ${CONTENT_ASSESSMENT_LLM_API_URL:-}
+      CONTENT_ASSESSMENT_LLM_API_KEY: ${CONTENT_ASSESSMENT_LLM_API_KEY}
+      CONTENT_ASSESSMENT_LLM_MODEL_NAME: ${CONTENT_ASSESSMENT_LLM_MODEL_NAME:-}
+      CONTENT_ASSESSMENT_LLM_TIMEOUT_SECONDS: ${CONTENT_ASSESSMENT_LLM_TIMEOUT_SECONDS:-90}
+      CONTENT_ASSESSMENT_LLM_MAX_RETRIES: ${CONTENT_ASSESSMENT_LLM_MAX_RETRIES:-0}
+      CONTENT_ASSESSMENT_PERSONAL_BASE_URL: ${CONTENT_ASSESSMENT_PERSONAL_BASE_URL:-}
+      CONTENT_ASSESSMENT_PERSONAL_API_KEY: ${CONTENT_ASSESSMENT_PERSONAL_API_KEY}
+      CONTENT_ASSESSMENT_PERSONAL_MODEL: ${CONTENT_ASSESSMENT_PERSONAL_MODEL:-}
+      CONTENT_ASSESSMENT_OFFICIAL_R1_BASE_URL: ${CONTENT_ASSESSMENT_OFFICIAL_R1_BASE_URL:-}
+      CONTENT_ASSESSMENT_OFFICIAL_R1_API_KEY: ${CONTENT_ASSESSMENT_OFFICIAL_R1_API_KEY}
+      CONTENT_ASSESSMENT_OFFICIAL_R1_MODEL: ${CONTENT_ASSESSMENT_OFFICIAL_R1_MODEL:-}
+      CONTENT_ASSESSMENT_OFFICIAL_FAST_BASE_URL: ${CONTENT_ASSESSMENT_OFFICIAL_FAST_BASE_URL:-}
+      CONTENT_ASSESSMENT_OFFICIAL_FAST_API_KEY: ${CONTENT_ASSESSMENT_OFFICIAL_FAST_API_KEY}
+      CONTENT_ASSESSMENT_OFFICIAL_FAST_MODEL: ${CONTENT_ASSESSMENT_OFFICIAL_FAST_MODEL:-}
+      LITERATURE_SEARCH_API_URL: ${LITERATURE_SEARCH_API_URL:-}
+      LITERATURE_FULLTEXT_API_URL: ${LITERATURE_FULLTEXT_API_URL:-}
+      LITERATURE_FULLTEXT_API_TOKEN: ${LITERATURE_FULLTEXT_API_TOKEN:-}
+      SENSITIVE_CHECK_API_URL: ${SENSITIVE_CHECK_API_URL:-}
+      ALLOW_DEFAULT_USER_SCOPE: ${ALLOW_DEFAULT_USER_SCOPE:-false}
+      BACKEND_PORT: "38002"
+      PYTHONUNBUFFERED: "1"
+      LOG_DIR: /app/data/logs
+      UPLOAD_DIR: /app/data/uploads
+      ALLOWED_ORIGINS: http://localhost:${FRONTEND_PUBLISHED_PORT:-18093},http://127.0.0.1:${FRONTEND_PUBLISHED_PORT:-18093}
+    volumes:
+      - backend-logs:/app/data/logs
+      - backend-uploads:/app/data/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:38002/system/health')"]
+      interval: 20s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        NODE_BASE_IMAGE: ${NODE_BASE_IMAGE:-node:20-alpine}
+        NGINX_BASE_IMAGE: ${NGINX_BASE_IMAGE:-nginx:1.27-alpine}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmmirror.com}
+        VITE_API_BASE_URL: /api/service/nstl/ai/agent/content-assessment
+        VITE_PUBLIC_BASE: /ai/agent/content_assessment/
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PUBLISHED_PORT:-18093}:38003"
+    environment:
+      BACKEND_HOST: backend
+      BACKEND_PORT: "38002"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:38003/"]
+      interval: 20s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+
+volumes:
+  mongo-data:
+  backend-logs:
+  backend-uploads:

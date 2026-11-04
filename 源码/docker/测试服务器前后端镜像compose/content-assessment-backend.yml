@@ -1,0 +1,32 @@
+version: "3.6"
+
+services:
+  service:
+    image: docker-hosted.example.invalid/nstl/content-assessment/content-assessment-backend:v1.0.1
+    container_name: content-assessment-backend-test
+    restart: always
+    networks:
+      NSTL-overlay:
+        aliases:
+          - backend
+    ports:
+      - "17613:38002"
+    environment:
+      - TZ=Asia/Shanghai
+    volumes:
+      - /data/nstl_service/content-assessment-backend/logs:/app/data/logs
+      - /data/nstl_service/content-assessment-backend/uploads:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:38002/system/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+
+networks:
+  NSTL-overlay:
+    external: true

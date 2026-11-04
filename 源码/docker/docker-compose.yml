@@ -1,0 +1,113 @@
+# ============================================================
+# 内容评估智能体 (ContentAssessment Agent) 本地开发环境
+#
+# 启动: docker compose up -d
+# 停止: docker compose down
+# 查看日志: docker compose logs -f
+#
+# 访问地址：
+#   后端: http://localhost:17607
+#   API文档: http://localhost:17607/docs
+#   前端: http://localhost:18093
+#   MongoDB: 127.0.0.1:27017（测试服，与 datahub-agentkit 共用）
+#
+# 注意：需要 NSTL 内网/VPN 才能连接测试服 MongoDB
+# ============================================================
+
+services:
+  # ==================== 后端 FastAPI 服务 ====================
+  backend:
+    image: ${CONTENT_ASSESSMENT_BACKEND_IMAGE:-docker-hosted.example.invalid/nstl/content-assessment/content-assessment-backend:v1.0.1}
+    container_name: datahub-agentkit-content-assessment-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-17607}:38002"
+    env_file:
+      # 让容器完整继承项目根目录 .env 中的检索网关、DeepSeek 等配置。
+      # 下方 environment 中的容器内专用配置会覆盖同名 env_file 值。
+      - ../.env
+    environment:
+      # 平台级 — 使用内容评估智能体独立数据库。
+      - MONGO_ENV=${MONGO_ENV:-test}
+      - MONGO_LOCAL_HOST=${MONGO_LOCAL_HOST:-127.0.0.1}
+      - MONGO_TEST_HOST=${MONGO_TEST_HOST:-127.0.0.1}
+      - MONGO_LOCAL_PORT=${MONGO_LOCAL_PORT:-27018}
+      - MONGO_TEST_PORT=${MONGO_TEST_PORT:-27017}
+      - MONGO_HOST=${MONGO_HOST:-127.0.0.1}
+      - MONGO_PORT=${MONGO_PORT:-27017}
+      - MONGO_DATABASE=${MONGO_DATABASE:-content_assessment_agent}
+      - MONGO_USERNAME=${MONGO_USERNAME:-admin}
+      - MONGO_PASSWORD=${MONGO_PASSWORD:-}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE:-admin}
+      - MONGO_INSTANCE_ID=${MONGO_INSTANCE_ID:-}
+      - BACKEND_PORT=38002
+      - PYTHONUNBUFFERED=1
+      - LOG_DIR=/app/data/logs
+      - UPLOAD_DIR=/app/data/uploads
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://127.0.0.1:18093,http://localhost:18093,https://www.nstl.gov.cn}
+      # 并发控制
+      - MAX_CONCURRENT_TASKS_PER_USER=${MAX_CONCURRENT_TASKS_PER_USER:-5}
+      - MAX_CONCURRENT_TASKS_GLOBAL=${MAX_CONCURRENT_TASKS_GLOBAL:-16}
+      # 智能体级
+      - CONTENT_ASSESSMENT_TASK_COLLECTION=${CONTENT_ASSESSMENT_TASK_COLLECTION:-content_assessment_tasks}
+      - CONTENT_ASSESSMENT_EVENT_COLLECTION=${CONTENT_ASSESSMENT_EVENT_COLLECTION:-content_assessment_task_events}
+      - ALLOW_DEFAULT_USER_SCOPE=${ALLOW_DEFAULT_USER_SCOPE:-false}
+      - CONTENT_ASSESSMENT_MOCK_AUTH_ENABLED=${CONTENT_ASSESSMENT_MOCK_AUTH_ENABLED:-false}
+      - CONTENT_ASSESSMENT_MOCK_USERS=${CONTENT_ASSESSMENT_MOCK_USERS:-}
+    volumes:
+      - content-assessment-logs:/app/data/logs
+      - content-assessment-uploads:/app/data/uploads
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:38002/system/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - content-assessment-net
+
+  # ==================== 前端 Nginx 服务 ====================
+  frontend:
+    image: ${CONTENT_ASSESSMENT_FRONTEND_IMAGE:-docker-hosted.example.invalid/nstl/content-assessment/content-assessment-frontend:v1.0.1}
+    container_name: datahub-agentkit-content-assessment-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-18093}:38003"
+    environment:
+      - BACKEND_HOST=backend
+      - BACKEND_PORT=38002
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:38003/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    networks:
+      - content-assessment-net
+volumes:
+  content-assessment-logs:
+    name: content-assessment-logs
+  content-assessment-uploads:
+    name: content-assessment-uploads
+
+# ==================== 网络 ====================
+networks:
+  content-assessment-net:
+    name: content-assessment-net
+
+# ============================================================
+# 部署后验证：
+#   docker compose up -d
+#   curl http://localhost:17607/system/health          # API 健康
+#   curl http://localhost:17607/system/health/queue    # 队列健康
+#   docker compose ps                                   # 服务状态
+# 日志文件：
+#   docker compose exec backend ls /app/data/logs/
+#   - app.log       应用日志
+#   - error.log     错误日志
+#   - task_audit.log 任务审计日志（JSON 行格式）
+#   - queue.log      队列事件日志（JSON 行格式）
+# ============================================================
