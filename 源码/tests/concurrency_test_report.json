@@ -1,0 +1,100 @@
+{
+  "test_name": "内容评估智能体并发压力测试",
+  "timestamp": "2026-05-21T10:46:31.555+08:00",
+  "base_url": "http://127.0.0.1:38002",
+  "environment": {
+    "python_version": "3.11.7 (tags/v3.11.7:fa7a6f2, Dec  4 2023, 19:24:49) [MSC v.1937 64 bit (AMD64)]",
+    "backend_health": "healthy",
+    "worker_count": 1,
+    "broker_connected": true
+  },
+  "stages": {
+    "baseline": {
+      "avg_ms": 50.44360000950595,
+      "count": 3
+    },
+    "concurrent_batches": [
+      {
+        "label": "并发=3",
+        "concurrency": 3,
+        "total": 3,
+        "success": 3,
+        "fail": 0,
+        "min_ms": 59.46719995699823,
+        "max_ms": 69.29100002162158,
+        "avg_ms": 63.353999983519316,
+        "p50_ms": 61.30379997193813,
+        "p95_ms": 68.49228001665324,
+        "p99_ms": 69.13125602062792,
+        "all_immediate": true,
+        "all_queued": true
+      },
+      {
+        "label": "并发=5",
+        "concurrency": 5,
+        "total": 5,
+        "success": 5,
+        "fail": 0,
+        "min_ms": 29.324400005862117,
+        "max_ms": 75.17029996961355,
+        "avg_ms": 48.664959985762835,
+        "p50_ms": 33.26639998704195,
+        "p95_ms": 74.84785998240113,
+        "p99_ms": 75.10581197217107,
+        "all_immediate": true,
+        "all_queued": true
+      },
+      {
+        "label": "并发=10",
+        "concurrency": 10,
+        "total": 10,
+        "success": 10,
+        "fail": 0,
+        "min_ms": 51.88379995524883,
+        "max_ms": 159.53839989379048,
+        "avg_ms": 108.46313997171819,
+        "p50_ms": 120.31070003286004,
+        "p95_ms": 157.4572398676537,
+        "p99_ms": 159.12216788856313,
+        "all_immediate": true,
+        "all_queued": true
+      }
+    ],
+    "pressure_rounds": [
+      {
+        "round": 1,
+        "success": 10,
+        "avg_ms": 92.2509599942714,
+        "all_immediate": true
+      },
+      {
+        "round": 2,
+        "success": 10,
+        "avg_ms": 92.29464000090957,
+        "all_immediate": true
+      },
+      {
+        "round": 3,
+        "success": 10,
+        "avg_ms": 252.8387199388817,
+        "all_immediate": true
+      }
+    ],
+    "final_health": {
+      "status": "degraded",
+      "broker": "test-redis.example.invalid:6383",
+      "broker_connected": true,
+      "worker_count": 0,
+      "active_tasks": 0,
+      "scheduled_tasks": 0,
+      "reserved_tasks": 0,
+      "total_queued": 0
+    }
+  },
+  "verdict": {
+    "api_no_blocking": true,
+    "all_queued_status": true,
+    "zero_failures": true,
+    "overall": "PASS"
+  }
+}

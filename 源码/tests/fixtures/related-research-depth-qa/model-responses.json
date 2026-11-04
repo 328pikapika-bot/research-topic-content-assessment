@@ -1,0 +1,535 @@
+[
+  {
+    "links": [
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-003",
+        "relation": "partially_supports",
+        "field_matrix": {
+          "object": "covered",
+          "method": "partial",
+          "data": "missing",
+          "baseline": "missing",
+          "metric": "covered",
+          "time": "missing",
+          "validation": "missing"
+        },
+        "comparable_fields": [
+          "object",
+          "metric"
+        ],
+        "difference": "本指南拟规定统一的TEER测量流程和报告要求，而E-L-003是一篇综述，概述了TEER测量的重要性、标准技术（欧姆定律和阻抗谱）及商用设备，并未提供具体的统一操作规范或报告模板。",
+        "incomparability_reasons": [],
+        "uncertainty": "E-L-003为综述，其摘要内容仅能提供方向性支持，无法作为本指南具体规定（如细胞来源、芯片材料、灌流剪切力等）的实测证据。",
+        "confidence": 0.4,
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟规定在屏障类器官芯片研究中统一使用TEER作为屏障完整性的测量指标。E-L-003的摘要明确指出，在微生理系统（器官芯片）中测量TEER值，可为屏障对不同药物和病原体的行为提供有价值的见解。双方在将TEER作为器官芯片屏障功能评估的核心指标这一方向上具有一致性。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Measuring TEER values within microphysiological systems called organ-on-a-chip devices that simulate the microenvironment, architecture, and physiology of biological barriers in the body provides valuable insight into the behavior of barriers in response to different drugs and pathogens."
+              ]
+            }
+          ],
+          "difference": [
+            {
+              "text": "本指南旨在制定一套包含细胞来源、芯片材料、操作流程和结果报告在内的统一规范，而E-L-003是一篇综述性文章，其内容是对现有TEER测量技术和设备的概述，并未提出或验证任何新的统一标准或操作规范。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求；统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "After briefly reviewing the role of TEER in the physiology and pathology of barriers, standard techniques for measuring TEER, including Ohm's law and impedance spectroscopy, and commercially available devices are described."
+              ]
+            }
+          ],
+          "conditions": [
+            {
+              "text": "本指南是面向未来实验操作的规范性文件，而E-L-003是对截至2023年已有技术和设备的文献综述。两者的性质（规范 vs. 综述）和目的（制定标准 vs. 总结现状）不同，构成了比较的前提条件。",
+              "material_quotes": [
+                "研究目标：建立适用于屏障类器官芯片研究的统一制备、培养、检测、质量控制和结果报告规范"
+              ],
+              "literature_quotes": [
+                "After briefly reviewing the role of TEER in the physiology and pathology of barriers, standard techniques for measuring TEER, including Ohm's law and impedance spectroscopy, and commercially available devices are described."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-001",
+        "relation": "partially_supports",
+        "field_matrix": {
+          "object": "covered",
+          "method": "partial",
+          "data": "missing",
+          "baseline": "missing",
+          "metric": "missing",
+          "time": "missing",
+          "validation": "missing"
+        },
+        "comparable_fields": [
+          "object",
+          "method"
+        ],
+        "difference": "本指南拟规定芯片材料和通道尺寸、表面处理等具体参数，而E-L-001描述了一种通用的微加工和操作方法，其具体参数（如芯片材料、通道尺寸）需根据所构建的器官芯片类型（如肠芯片）进行调整，并非一套固定的规范。",
+        "incomparability_reasons": [],
+        "uncertainty": "E-L-001的摘要仅提供了微加工和操作流程的概述，未涉及本指南中要求的细胞来源鉴定、灌流剪切力、培养周期等具体参数的统一规定。",
+        "confidence": 0.4,
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟规定芯片材料和通道尺寸、表面处理等微加工要求。E-L-001描述了一种用于制造器官芯片的微加工协议，该协议涉及制造包含两个平行弹性体微通道的多层微流控装置。双方在采用微加工技术构建器官芯片这一基本方法上具有关联性。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求"
+              ],
+              "literature_quotes": [
+                "First, microengineering is used to fabricate a multilayered microfluidic device that contains two parallel elastomeric microchannels separated by a thin porous flexible membrane, along with two full-height, hollow vacuum chambers on either side"
+              ]
+            }
+          ],
+          "difference": [
+            {
+              "text": "本指南旨在规定一套标准化的芯片材料和通道尺寸等参数，而E-L-001提供的是一种可灵活调整的通用制造协议，并指出该协议可以很容易地适应开发其他人体器官芯片，如肠芯片。这表明其方法具有适应性，而非本指南所追求的固定规范。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求"
+              ],
+              "literature_quotes": [
+                "We describe how this protocol can be easily adapted to develop other human organ chips, such as a gut-on-a-chip lined by human intestinal epithelial cells that experiences peristalsis-like motions and trickling fluid flow."
+              ]
+            }
+          ],
+          "conditions": [
+            {
+              "text": "本指南是计划中的规范文件，而E-L-001是2013年发表的实验方法论文。两者在时间（计划 vs. 已发表）和性质（规范 vs. 方法）上存在差异，构成了比较的前提条件。",
+              "material_quotes": [
+                "研究目标：建立适用于屏障类器官芯片研究的统一制备、培养、检测、质量控制和结果报告规范"
+              ],
+              "literature_quotes": [
+                "Here we describe a protocol for the fabrication, microengineering and operation of these microfluidic organ-on-chip systems."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-016",
+        "relation": "partially_supports",
+        "field_matrix": {
+          "object": "covered",
+          "method": "partial",
+          "data": "partial",
+          "baseline": "missing",
+          "metric": "covered",
+          "time": "missing",
+          "validation": "missing"
+        },
+        "comparable_fields": [
+          "object",
+          "method",
+          "data",
+          "metric"
+        ],
+        "difference": "本指南旨在统一TEER测量流程，而E-L-016提出了一种特定的四电极直接测量方法，该方法旨在消除通道特性的影响，与本指南可能涵盖的其他TEER测量方法（如阻抗谱）不同。",
+        "incomparability_reasons": [],
+        "uncertainty": "E-L-016的摘要提供了在hCMEC/D3细胞上测得的TEER值（22 Ω cm²），但该数据来自单一细胞系和特定设备，无法直接作为本指南中建议的TEER范围或统一流程的验证依据。",
+        "confidence": 0.5,
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟统一TEER测量流程。E-L-016专注于在器官芯片中直接量化TEER，并提出了一种使用四电极和六种不同测量配置来直接推导出独立于通道特性的TEER值的方法。双方的研究对象（器官芯片中的TEER测量）和核心指标（TEER值）高度一致。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Using four electrodes inserted into two channels two on each side of the porous membrane and six different measurement configurations we can directly derive the isolated TEER independent of channel properties."
+              ]
+            }
+          ],
+          "difference": [
+            {
+              "text": "本指南旨在制定一个包含多种可能方法的统一流程，而E-L-016提出并验证了一种特定的、旨在提高测量准确性的四电极直接测量方法。该方法与本指南可能包含的其他TEER测量方法（如使用商用设备）在技术路径上存在差异。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Using four electrodes inserted into two channels two on each side of the porous membrane and six different measurement configurations we can directly derive the isolated TEER independent of channel properties."
+              ]
+            }
+          ],
+          "conditions": [
+            {
+              "text": "本指南是计划中的规范，而E-L-016是已发表的实验研究。该文献的实验条件（使用hCMEC/D3细胞、特定芯片设计）与本指南旨在覆盖的多种屏障模型和芯片平台不同，构成了比较的前提条件。",
+              "material_quotes": [
+                "应用场景：血脑屏障药物通透性、肠道吸收和炎症屏障研究，吸入制剂及纳米材料的体外安全性评价"
+              ],
+              "literature_quotes": [
+                "we demonstrate the use of our method by quantifying the TEER of a monolayer of human hCMEC/D3 cerebral endothelial cells, mimicking the blood-brain barrier inside our microfluidic organ-on-chip device."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-005",
+        "relation": "insufficient_evidence",
+        "field_matrix": {
+          "object": "partial",
+          "method": "missing",
+          "data": "missing",
+          "baseline": "missing",
+          "metric": "missing",
+          "time": "missing",
+          "validation": "missing"
+        },
+        "comparable_fields": [
+          "object"
+        ],
+        "difference": "本指南关注屏障类器官芯片的制备、培养和检测规范，而E-L-005主要解决器官芯片的流体控制和系统集成问题，其核心是流体电路板和模块化传感器，与本指南的规范内容无直接对应关系。",
+        "incomparability_reasons": [
+          "研究重点不同"
+        ],
+        "uncertainty": "E-L-005的摘要未提及任何与本指南中细胞来源、TEER测量、屏障功能测试等具体规定相关的内容。",
+        "confidence": 0.2,
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南涉及器官芯片的培养和灌流剪切力要求。E-L-005描述了一种用于器官芯片的流体电路板（FCB）控制系统，该系统能够实现恒流和脉动流再循环，并成功用于灌注心脏芯片。双方的研究对象均为器官芯片的微流控培养环境。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求"
+              ],
+              "literature_quotes": [
+                "The control system is able to achieve constant and pulsatile flow recirculation through a connected organ-on-chip device."
+              ]
+            }
+          ],
+          "difference": [
+            {
+              "text": "本指南旨在规定灌流剪切力等培养参数，而E-L-005的核心贡献在于提供一种开放、模块化的流体控制硬件平台（FCB），以实现不同组件的集成和自动化控制，而非规定具体的剪切力数值或培养流程。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求"
+              ],
+              "literature_quotes": [
+                "The FCB enables microfluidic control of multiple components like sensors or organ-on-chip devices through an interface based on openly available standards."
+              ]
+            }
+          ],
+          "conditions": [
+            {
+              "text": "本指南是计划中的规范，而E-L-005是已发表的工程方法论文。该文献的实验对象是心脏芯片，而本指南主要针对屏障类器官芯片，两者在具体应用模型上存在差异。",
+              "material_quotes": [
+                "应用场景：血脑屏障药物通透性、肠道吸收和炎症屏障研究"
+              ],
+              "literature_quotes": [
+                "We demonstrate that this system is able to automatically perfuse a heart-on-chip device containing co-cultures of cardiac tissues derived from human pluripotent stem cell-derived cardiomyocytes and monolayers of endothelial cells for five days."
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-015",
+        "relation": "partially_supports",
+        "field_matrix": {
+          "object": "covered",
+          "method": "partial",
+          "data": "missing",
+          "baseline": "missing",
+          "metric": "covered",
+          "time": "missing",
+          "validation": "missing"
+        },
+        "comparable_fields": [
+          "object",
+          "metric"
+        ],
+        "difference": "本指南拟统一TEER测量流程，而E-L-015提出了一种空间TEER（S-TEER）测量系统，能够提供芯片内不同位置的局部阻抗信息，这与传统提供整体阻抗值的TEER测量方法不同。",
+        "incomparability_reasons": [],
+        "uncertainty": "E-L-015的摘要仅介绍了S-TEER系统的原理和演示，未提供可用于本指南规范制定的具体操作参数或标准化流程。",
+        "confidence": 0.4,
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟统一TEER测量流程。E-L-015的研究内容是将TEER测量系统集成到器官芯片中，以提供屏障功能的实时读数。双方均将TEER作为评估器官芯片屏障完整性的核心指标。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "TEER measurement systems have been embedded in organ-on-a-chip devices to provide live readouts of barrier functionality."
+              ]
+            }
+          ],
+          "difference": [
+            {
+              "text": "本指南旨在统一TEER测量流程，而E-L-015提出了一种创新的空间TEER（S-TEER）系统，该系统使用移动扫描电极来测量芯片内任意位置的电阻，以获取局部渗透性信息。这与本指南可能涵盖的、提供整体TEER值的传统方法在技术路径和测量维度上存在差异。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "This work introduces a system that provides this essential information: a spatial-TEER (S-TEER) organ-on-a-chip platform, which incorporates moving (scanning) electrodes that can measure electrical resistance at any desired location along the chip."
+              ]
+            }
+          ],
+          "conditions": [
+            {
+              "text": "本指南是计划中的规范，而E-L-015是已发表的实验研究。该文献提出的S-TEER系统是一种特定的技术方案，其适用性和标准化程度与本指南旨在建立的通用规范不同，构成了比较的前提条件。",
+              "material_quotes": [
+                "研究目标：建立适用于屏障类器官芯片研究的统一制备、培养、检测、质量控制和结果报告规范"
+              ],
+              "literature_quotes": [
+                "This work introduces a system that provides this essential information: a spatial-TEER (S-TEER) organ-on-a-chip platform"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "decisions": [
+      {
+        "claim_id": "C-002",
+        "label": "方向性支持",
+        "rationale": "现有文献（E-L-003, E-L-001, E-L-016, E-L-015）在器官芯片的微加工、TEER测量等方向性方法上与本指南拟规定的内容一致，提供了技术背景和先例。然而，这些文献均为已发表的研究或综述，其具体方法、数据和结论与本指南旨在建立的统一规范之间存在差异，且均未提供本指南所要求的全套标准化流程和验证数据。因此，现有证据提供了方向性支持，但不足以直接支撑本指南的具体规定。",
+        "evidence_ids": [
+          "E-L-003",
+          "E-L-001",
+          "E-L-016",
+          "E-L-015"
+        ],
+        "risk_notes": [
+          "E-L-003为综述，其内容为方向性概述，不能作为具体操作规范的直接证据。",
+          "E-L-001的通用协议与本指南的固定规范在目的上存在差异。",
+          "E-L-016和E-L-015提出的特定TEER测量方法（四电极法、S-TEER）与本指南可能涵盖的通用流程不同。",
+          "所有文献均未提供本指南要求的跨实验室、多批次复现性验证数据。"
+        ],
+        "rewrite_advice": "可保留现有主张，但需明确其作为计划中的规范，其具体参数和流程的可行性尚需通过后续实验验证。"
+      }
+    ],
+    "reader_analysis": {
+      "claim_id": "C-002",
+      "material_summary": {
+        "text": "本要点旨在为屏障类器官芯片研究制定一套全面的操作规范。其核心设计是规定从细胞来源、芯片制造（材料、通道尺寸、表面处理）到培养过程（接种密度、灌流剪切力、培养周期）的标准化要求，并统一关键功能指标（TEER、荧光示踪通量、紧密连接蛋白、细胞活率）的测试流程和恢复测试方法。此外，该规范还详细规定了实验记录和报告的要求，包括批次、设备、温度、流量等参数，以及数据统计和计算公式。该规范的应用场景覆盖血脑屏障、肠道吸收、吸入制剂安全性评价等多个领域，其最终目标是实现不同实验室间的结果可比性。作为一项计划中的指南，其具体参数和流程的可行性尚待后续的跨实验室验证。",
+        "material_quotes": [
+          "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求；统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。",
+          "每个实验需记录批次、设备、温度、流量、示踪分子分子量、采样时间点和原始图像，报告均值、离散程度、异常值处理和生物学重复数，并给出从原始信号到通透性系数的计算公式。",
+          "研究目标：建立适用于屏障类器官芯片研究的统一制备、培养、检测、质量控制和结果报告规范，使不同实验室能够依据相同的对象定义、操作条件和判定口径复现实验并比较结果。"
+        ]
+      },
+      "literature_summary": [
+        {
+          "text": "相关文献在器官芯片的构建和功能评估方面提供了技术基础。E-L-001提供了通用的微加工和操作协议，为本指南中芯片制造和培养环节的规范化提供了方法学参考。E-L-003、E-L-016和E-L-015均聚焦于TEER测量，这是本指南的核心评估指标之一。其中，E-L-003作为综述，概述了TEER测量的重要性和标准技术；E-L-016提出了一种直接量化TEER的四电极方法，并提供了在血脑屏障模型上的实测数据；E-L-015则提出了空间TEER（S-TEER）的概念，用于获取局部屏障信息。这些文献共同构成了本指南在TEER测量方面的技术背景，但各自的方法和侧重点与本指南旨在建立的统一、标准化的流程存在差异。E-L-005虽然涉及器官芯片的流体控制，但其核心是硬件集成平台，与本指南的规范内容关联度较低。",
+          "evidence_ids": [
+            "E-L-001",
+            "E-L-003",
+            "E-L-016",
+            "E-L-015",
+            "E-L-005"
+          ],
+          "anchors": [
+            {
+              "evidence_id": "E-L-001",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求"
+              ],
+              "literature_quotes": [
+                "First, microengineering is used to fabricate a multilayered microfluidic device that contains two parallel elastomeric microchannels separated by a thin porous flexible membrane"
+              ]
+            },
+            {
+              "evidence_id": "E-L-003",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Measuring TEER values within microphysiological systems called organ-on-a-chip devices... provides valuable insight into the behavior of barriers"
+              ]
+            },
+            {
+              "evidence_id": "E-L-016",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Using four electrodes inserted into two channels... we can directly derive the isolated TEER independent of channel properties."
+              ]
+            },
+            {
+              "evidence_id": "E-L-015",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "This work introduces a system that provides this essential information: a spatial-TEER (S-TEER) organ-on-a-chip platform"
+              ]
+            },
+            {
+              "evidence_id": "E-L-005",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求"
+              ],
+              "literature_quotes": [
+                "The control system is able to achieve constant and pulsatile flow recirculation through a connected organ-on-chip device."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "reader_analysis": {
+      "claim_id": "C-002",
+      "material_summary": {
+        "text": "本指南拟规定屏障类器官芯片研究中细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求，并统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。每个实验需记录批次、设备、温度、流量、示踪分子分子量、采样时间点和原始图像，报告均值、离散程度、异常值处理和生物学重复数，并给出从原始信号到通透性系数的计算公式。该规范的应用场景覆盖血脑屏障药物通透性、肠道吸收和炎症屏障研究、吸入制剂及纳米材料的体外安全性评价等。作为一项计划中的指南，其具体参数和流程的可行性尚待后续的跨实验室验证。",
+        "material_quotes": [
+          "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求；统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。",
+          "每个实验需记录批次、设备、温度、流量、示踪分子分子量、采样时间点和原始图像，报告均值、离散程度、异常值处理和生物学重复数，并给出从原始信号到通透性系数的计算公式。",
+          "研究目标：建立适用于屏障类器官芯片研究的统一制备、培养、检测、质量控制和结果报告规范，使不同实验室能够依据相同的对象定义、操作条件和判定口径复现实验并比较结果。"
+        ]
+      },
+      "literature_summary": [
+        {
+          "text": "在屏障类器官芯片领域，TEER测量是评估屏障完整性的核心方法。相关文献涵盖了从基础测量原理到集成化、空间化测量的技术演进。E-L-003综述了TEER在微生理系统中的测量技术，包括欧姆定律和阻抗谱等标准方法，为本指南统一TEER测试流程提供了技术背景。E-L-016和E-L-015则分别提出了直接定量TEER和空间分辨TEER的测量方法，为本指南中TEER测试流程的标准化设计提供了具体的方法学参考。本指南在TEER测量方面，侧重于规定统一的测试流程和记录要求，而非开发新的测量技术。",
+          "evidence_ids": [
+            "E-L-003",
+            "E-L-016",
+            "E-L-015"
+          ],
+          "anchors": [
+            {
+              "evidence_id": "E-L-003",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "standard techniques for measuring TEER, including Ohm's law and impedance spectroscopy, and commercially available devices are described."
+              ]
+            },
+            {
+              "evidence_id": "E-L-016",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Using four electrodes inserted into two channels two on each side of the porous membrane and six different measurement configurations we can directly derive the isolated TEER independent of channel properties."
+              ]
+            },
+            {
+              "evidence_id": "E-L-015",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "a spatial-TEER (S-TEER) organ-on-a-chip platform, which incorporates moving (scanning) electrodes that can measure electrical resistance at any desired location along the chip."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "links": [
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-003",
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟统一TEER测试流程，而E-L-003综述了TEER测量的标准技术，包括欧姆定律和阻抗谱，并描述了市售设备。该文献为本指南中TEER测试流程的标准化设计提供了技术背景和现有方法基础。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "standard techniques for measuring TEER, including Ohm's law and impedance spectroscopy, and commercially available devices are described."
+              ]
+            }
+          ],
+          "difference": [],
+          "conditions": []
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-001",
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南旨在规范屏障类器官芯片的制备和操作，而E-L-001描述了一种用于制造和操作器官芯片的微加工协议，包括制造多层微流控装置的具体步骤。该文献为本指南中芯片材料和通道尺寸等制造环节的标准化提供了方法学参考。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求；"
+              ],
+              "literature_quotes": [
+                "a protocol for the fabrication, microengineering and operation of these microfluidic organ-on-chip systems."
+              ]
+            }
+          ],
+          "difference": [],
+          "conditions": []
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-016",
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟统一TEER测试流程，而E-L-016提出了一种使用四电极配置直接定量TEER的方法，并演示了其在血脑屏障芯片上的应用，获得了22 Ω·cm²的稳定TEER值。该文献为本指南中TEER测试流程的标准化设计提供了具体的测量方法和数据参考。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "Using four electrodes inserted into two channels two on each side of the porous membrane and six different measurement configurations we can directly derive the isolated TEER independent of channel properties.",
+                "We found stable TEER values of 22 Omega cm(2) +/- 1.3 Omega cm(2)"
+              ]
+            }
+          ],
+          "difference": [],
+          "conditions": []
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-005",
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南旨在规范屏障类器官芯片的培养条件，包括灌流剪切力，而E-L-005介绍了一种流体电路板，能够实现恒流和脉动流再循环，并演示了其用于自动灌注心脏芯片五天。该文献为本指南中灌流剪切力的控制与标准化提供了技术思路。",
+              "material_quotes": [
+                "规定细胞来源与鉴定、芯片材料和通道尺寸、表面处理、接种密度、灌流剪切力、培养周期、阳性/阴性对照及污染排查要求；"
+              ],
+              "literature_quotes": [
+                "The control system is able to achieve constant and pulsatile flow recirculation through a connected organ-on-chip device.",
+                "able to automatically perfuse a heart-on-chip device containing co-cultures of cardiac tissues derived from human pluripotent stem cell-derived cardiomyocytes and monolayers of endothelial cells for five days."
+              ]
+            }
+          ],
+          "difference": [],
+          "conditions": []
+        }
+      },
+      {
+        "claim_id": "C-002",
+        "evidence_id": "E-L-015",
+        "reader_comparison": {
+          "similarity": [
+            {
+              "text": "本指南拟统一TEER测试流程，而E-L-015介绍了一种空间TEER平台，通过移动电极测量芯片上任意位置的电阻，以获取局部屏障完整性信息。该文献为本指南中TEER测试流程的标准化设计提供了空间分辨测量的技术参考。",
+              "material_quotes": [
+                "统一TEER、荧光示踪通量、紧密连接蛋白、细胞活率和屏障破坏后的恢复测试流程。"
+              ],
+              "literature_quotes": [
+                "a spatial-TEER (S-TEER) organ-on-a-chip platform, which incorporates moving (scanning) electrodes that can measure electrical resistance at any desired location along the chip."
+              ]
+            }
+          ],
+          "difference": [],
+          "conditions": []
+        }
+      }
+    ]
+  }
+]
