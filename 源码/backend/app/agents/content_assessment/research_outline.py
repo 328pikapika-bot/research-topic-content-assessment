@@ -117,6 +117,10 @@ def compose_research_report(state):
     add("scope", "principles", "创新性考察方法、结构、机制或应用方式的新增贡献；前沿性考察与当前研究问题的关联；"
         "先进性须基于可比较的对象、单位、基线和实验条件。检索未命中不构成原创证明。")
     add("scope", "limits", "本报告形成材料与证据范围内的评价，不替代独立实验、实施验证或规范符合性认证。")
+    limitations = state.output_json.get("report_evidence_limitations", {})
+    if limitations.get("claim_ids"):
+        names = "、".join(point_title(c) for c in state.claims if c.claim_id in limitations["claim_ids"])
+        add("scope", "limits", limitations["message"] + "涉及要点：" + names + "。")
     add("object", "background", state.nine_fields.research_direction or profile.research_domain)
     add("object", "content", state.nine_fields.research_content or state.nine_fields.technical_route
         or profile.scope_summary or "以下按材料中的独立要点呈现其研究内容。")
@@ -208,7 +212,10 @@ def compose_research_report(state):
             metric_text = f"{name}——{indicator.name}：{target}。"
             if method:
                 metric_text += f"材料拟采用的验证方法为{method}。"
-            add("comparison", "metrics", metric_text, cid=cid)
+            ids = [eid for eid in validation.evidence_refs if eid in allowed] if validation else []
+            if validation and validation.assessment_conclusion:
+                metric_text += reader_prose(validation.assessment_conclusion)
+            add("comparison", "metrics", metric_text, ids, cid=cid)
             if validation:
                 used.update(eid for eid in validation.evidence_refs if eid in allowed)
     if kind == "project" and state.guideline_requirements:

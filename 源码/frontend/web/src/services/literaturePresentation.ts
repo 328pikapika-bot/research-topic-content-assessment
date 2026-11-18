@@ -10,9 +10,21 @@ export interface LiteratureChunk {
   section_path?: string; section_ref?: string; page_ref?: string
   locator?: unknown; char_start?: number | null; char_end?: number | null; reopenable?: boolean
 }
+export function literatureAuthors(authors?: string[]): string {
+  const values = (authors || []).map(value => bibliographyText(value)).filter(Boolean)
+  return values.slice(0, 3).join('、') + (values.length > 3 ? ' 等' : '')
+}
 export function bibliographyText(value?: string): string {
-  return String(value || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]*>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim()
+  return String(value || '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/<!\\\[CDATA\\\[([\s\S]*?)\\\]\\\]>/g, '$1')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').replace(/<[^>]*>/g, '').trim()
+}
+export function inlineLiteratureText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/<!\\\[CDATA\\\[([\s\S]*?)\\\]\\\]>/g, '$1')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/<\/?(?:Subscript|Superscript)>/gi, '')
 }
 export function chunkLocation(chunk: LiteratureChunk): string {
   const direct = chunk.section_path || chunk.section_ref || chunk.page_ref

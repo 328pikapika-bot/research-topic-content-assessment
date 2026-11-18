@@ -27,10 +27,10 @@ def test_candidate_reader_content_keeps_only_substantive_candidate_citations():
     )
 
     assert content["reason"]["text"]
-    assert content["reason"]["evidence_ids"] == ["E1"]
-    assert content["research_content"]["research_object"]["evidence_ids"] == []
+    assert content["reason"]["evidence_ids"] == ["E1", "E2"]
+    assert content["research_content"]["research_object"]["evidence_ids"] == ["E2"]
     assert content["research_content"]["core_question"]["evidence_ids"] == ["E1"]
-    assert content["research_content"]["method_route"]["evidence_ids"] == []
+    assert content["research_content"]["method_route"]["evidence_ids"] == ["E2"]
     assert content["evidence_summary"] == {"text": "", "evidence_ids": []}
 
 
@@ -38,6 +38,41 @@ def test_candidate_copy_removes_internal_codes_and_process_diagnostics():
     result = candidate_reader_prose("比较热暴露的遥感方法[4]；关联主题 T1、T2；空白 G3；尚未证明候选假设。")
     assert "比较热暴露的遥感方法[4]" in result
     assert not any(token in result for token in ("T1", "T2", "G3", "关联主题", "空白", "尚未证明"))
+
+
+def test_fallback_preserves_valid_inline_sources_and_removes_empty_parentheses():
+    content = normalize_candidate_reader_content(
+        {"reason": {"text": "已有研究（E-source）支持方法；待验证的方向（）", "evidence_ids": []}},
+        allowed_evidence_ids={"E-source"}, substantive_evidence_ids=set(),
+    )
+    assert content["reason"] == {"text": "已有研究支持方法；待验证的方向", "evidence_ids": ["E-source"]}
+
+
+def test_candidate_reader_removes_empty_punctuation_only_parentheses():
+    assert candidate_reader_prose("现有方法（, ）可用；研究设计（，、）待验证。") == "现有方法可用；研究设计待验证。"
+
+
+def test_context_only_candidate_shows_cited_background_without_claiming_support():
+    from app.agents.topic_selection.agent import TopicSelectionAgent
+    from app.agents.topic_selection.schemas import CandidateEvidenceLink, EvidenceRecord, TopicSelectionState
+
+    state = TopicSelectionState(raw_user_input="比较研究方法")
+    state.evidence_pool = [EvidenceRecord(evidence_id="E1", title="相关研究", abstract="讨论相近方法的应用。")]
+    candidate = TopicCandidate(candidate_id="C1", title="方法比较", research_question="如何比较两种方法？", evidence_ids=["E1"],
+                               evidence_links=[CandidateEvidenceLink(link_id="C1:E1", candidate_id="C1",
+                                   evidence_id="E1", relation="context")])
+    candidate.reader_content = TopicSelectionAgent._normalize_candidate_reader_content(candidate, {}, state)
+    assert candidate.reader_content["background_summary"]["evidence_ids"] == ["E1"]
+    fields = candidate_reader_report_fields(candidate, {"E1": 1})
+    assert next(field["value"] for field in fields if field["label"] == "相关文献").endswith("[1]")
+    assert not any(field["label"] == "文献依据" for field in fields)
+
+
+def test_scientific_lifetime_measure_is_preserved_in_reader_and_export():
+    from app.services.topic_selection_report import _reader_visible
+    text = '比较组件I-V、T80和失效记录。[1][2]'
+    assert candidate_reader_prose(text) == text
+    assert _reader_visible(text) == text
 
 
 def test_report_candidate_citations_cannot_escape_candidate_evidence_set():

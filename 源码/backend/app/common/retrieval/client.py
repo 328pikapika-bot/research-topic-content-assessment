@@ -111,6 +111,11 @@ class LiteratureSearchClient:
 
             trace.gateway_code = data.get("code")
             trace.gateway_msg = str(data.get("msg", ""))
+            if data.get("code") != 1 and trace.gateway_msg.strip() in {
+                "查询结果为空", "检索结果为空", "未检索到相关文献", "未查询到相关数据",
+            }:
+                return self._response_from_trace(request=request, trace=trace,
+                    success=True, papers=[], started_at=t0)
             if data.get("code") != 1:
                 error_msg = trace.gateway_msg or "未知错误"
                 trace.errors.append(error_msg)

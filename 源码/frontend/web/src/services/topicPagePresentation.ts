@@ -26,14 +26,15 @@ export function topicCandidateFields(candidate: Record<string, any>, original: R
 }
 export function topicCitationMap(state: Record<string, any>): Record<string, number> {
   const saved = state.report_plan?.citation_map || {}
-  if (Object.keys(saved).length) return saved
+  if (Object.keys(saved).length || state.report_snapshot?.frozen || state.report_plan?.publication_status === 'published') return saved
   return Object.fromEntries((state.evidence_pool || []).map((item: any, index: number) => [item.evidence_id, index + 1]))
 }
 export function topicCandidateReaderText(value: unknown): string {
   let text = String(value ?? '')
   text = text.replace(/(?:关联)?(?:研究)?主题\s*[TG]\d+(?:\s*[、,，]\s*[TG]\d+)*/g, '')
     .replace(/空白\s*G\d+(?:\s*[、,，]\s*G\d+)*/g, '')
-    .replace(/\b(?:E-[A-Za-z0-9_-]+|M-INPUT|[TG]\d+)\b/g, '')
+    .replace(/\b(?:E-[A-Za-z0-9_-]+|M-INPUT)\b/g, '')
+    .replace(/\[\s*\]|（[\s,，、;；]*）|\([\s,，、;；]*\)/g, '')
   const diagnostics = /尚未证明|尚不证明候选假设|摘要未提及|摘要或元数据|仅有摘要|全文不可用|证据范围|全文摘录|当前仅有/i
   text = text.split(/(?<=[。；;！？!?])|(?=尚未证明|尚不证明候选假设|摘要未提及|摘要或元数据|仅有摘要|全文不可用|证据范围|全文摘录|当前仅有)/i)
     .filter(part => part.trim() && !diagnostics.test(part)).join('')
@@ -43,12 +44,12 @@ export function topicCandidateReading(candidate: Record<string, any>, original: 
   const cite = (entry: any) => {
     const text = topicCandidateReaderText(entry?.text)
     const refs = [...new Set<number>((entry?.evidence_ids || []).map((id: string) => citationMap[id]).filter((number: unknown): number is number => typeof number === 'number' && Number.isSafeInteger(number) && number > 0))]
-    return text && refs.length ? `${text} ${refs.map((number: number) => `[${number}]`).join(' ')}` : text
+    return text && refs.length ? `${text} ${refs.map((number: number) => `[${number}]`).join('')}` : text
   }
   const fields = topicCandidateFields(candidate, original, sections)
   const field = (...labels: string[]) => topicCandidateReaderText(fields.find((item: any) => labels.includes(item.label))?.value || '')
   const design = field('研究内容', '研究设计')
-  const pick = (label: string) => design.match(new RegExp(`(?:^|[；;\\n])\\s*${label}：([^；;\\n]+)`))?.[1]?.trim() || ''
+  const pick = (label: string) => design.match(new RegExp(`(?:^|\\n|[；;](?=\\s*(?:研究对象|对象|核心问题|问题|方法路线|方法)[:：]))\\s*${label}[:：]([\\s\\S]*?)(?=\\n\\s*(?:研究对象|对象|核心问题|问题|方法路线|方法)[:：]|[；;]\\s*(?:研究对象|对象|核心问题|问题|方法路线|方法)[:：]|$)`))?.[1]?.trim() || ''
   const legacyEvidence = field('文献依据', '证据依据').replace(/(?:；|、)?\s*证据范围：[^；。]*/g, '').replace(/(?:；|、)?\s*全文摘录：[^。]*/g, '')
   const diagnostic = /(?:关联主题\s*[TG]\d+|空白\s*G\d+|尚未证明|尚不证明候选假设|摘要或元数据|仅有摘要)/i
   const safeLegacyEvidence = legacyEvidence
@@ -59,11 +60,12 @@ export function topicCandidateReading(candidate: Record<string, any>, original: 
     .trim()
   const saved = candidate.reader_content && typeof candidate.reader_content === 'object' ? candidate.reader_content : {}
   const savedResearch = saved.research_content && typeof saved.research_content === 'object' ? saved.research_content : {}
-  const object = cite(savedResearch.research_object) || pick('对象') || topicCandidateReaderText(candidate.research_object)
-  const core = cite(savedResearch.core_question) || pick('核心问题') || pick('问题') || topicCandidateReaderText(candidate.research_question) || topicCandidateReaderText(candidate.hypothesis)
-  const method = cite(savedResearch.method_route) || pick('方法') || pick('方法路线') || topicCandidateReaderText(candidate.method_route)
-  const reason = cite(saved.reason) || field('选题理由', '核心理由') || topicCandidateReaderText(candidate.innovation) || topicCandidateReaderText(candidate.distinctiveness_rationale)
-  const evidenceSummary = cite(saved.evidence_summary) || safeLegacyEvidence
+  const object = pick('研究对象') || pick('对象') || cite(savedResearch.research_object) || topicCandidateReaderText(candidate.research_object)
+  const core = pick('核心问题') || pick('问题') || cite(savedResearch.core_question) || topicCandidateReaderText(candidate.research_question) || topicCandidateReaderText(candidate.hypothesis)
+  const method = pick('方法') || pick('方法路线') || cite(savedResearch.method_route) || topicCandidateReaderText(candidate.method_route)
+  const reason = field('选题理由', '核心理由') || cite(saved.reason) || topicCandidateReaderText(candidate.innovation) || topicCandidateReaderText(candidate.distinctiveness_rationale)
+  const backgroundSummary = field('相关文献') || cite(saved.background_summary)
+  const evidenceSummary = fields.length ? safeLegacyEvidence || backgroundSummary : cite(saved.evidence_summary) || backgroundSummary
   return {
     reason,
     researchContent: [
@@ -72,6 +74,7 @@ export function topicCandidateReading(candidate: Record<string, any>, original: 
       { label: '方法路线', value: method },
     ].filter(item => item.value),
     evidenceSummary,
+    evidenceLabel: safeLegacyEvidence || cite(saved.evidence_summary) ? '文献依据' : '相关文献',
   }
 }
 export function topicThemeNodes(tree: Record<string, any>): any[] {
@@ -101,7 +104,7 @@ export function topicCitationSources(state: Record<string, any>): Record<number,
       result[number] = { ...item, url: plan.citation_links?.[id] || item.url }
     }
   }
-  if (!entries.length) {
+  if (!entries.length && !state.report_snapshot?.frozen && plan.publication_status !== 'published') {
     for (const item of references) {
       const number = Number(item.number)
       if (Number.isSafeInteger(number) && number > 0) result[number] = item
@@ -116,9 +119,8 @@ export function topicCitationSources(state: Record<string, any>): Record<number,
 }
 
 export function citationTextParts(value: unknown): Array<{ text: string; number?: number }> {
-  return String(value ?? '').split(/(\[\s*\d+(?:[\s,，、;；]+\d+)*\s*\])/g).filter(Boolean).flatMap(part => {
+  return String(value ?? '').replace(/(\[\d+\])\s+(?=\[\d+\])/g, '$1').split(/(\[\s*\d+(?:[\s,，、;；]+\d+)*\s*\])/g).filter(Boolean).flatMap(part => {
     if (!/^\[\s*\d/.test(part)) return [{ text: part }]
-    if (/^\[\s*\d+\s*\]$/.test(part)) return [{ text: part, number: Number(part.replace(/\D/g, '')) }]
-    return part.split(/(\d+)/g).filter(Boolean).map(text => /^\d+$/.test(text) ? { text, number: Number(text) } : { text })
+    return (part.match(/\d+/g) || []).map(number => ({ text: `[${Number(number)}]`, number: Number(number) }))
   })
 }

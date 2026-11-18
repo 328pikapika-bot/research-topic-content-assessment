@@ -15,6 +15,12 @@ const { topicResultState, assessmentResultState, topicTrendSeries, assessmentTre
 const { literatureEvidenceStatus, chunkLocation } = service('literaturePresentation')
 const plain = value => JSON.parse(JSON.stringify(value))
 
+test('V7 annual distribution remains readable alongside older series snapshots', () => {
+  const state = { report_snapshot: { chart_manifest: [{ chart_key: 'years', included: true, render_mode: 'primary',
+    chart_data: { points: [{ year: 2024, count: 3 }, { year: 2025, count: 5 }], undated: 1, total: 9 } }] } }
+  assert.deepEqual(plain(assessmentTrendSeries(state)), [{ label: '检索样本', points: [{ year: 2024, count: 3 }, { year: 2025, count: 5 }] }])
+})
+
 test('live literature ranks the point method before shared background without losing source records', () => {
   const { pointLiteratureOrder, researchPointName } = service('researchPresentation')
   const background = { title: 'Probabilistic information retrieval', abstract: 'BM25 ranking' }
@@ -113,4 +119,23 @@ test('indexed or linked literature only becomes fulltext after readable located 
   assert.equal(chunkLocation(chunk), '页 3 · 段落 2')
   assert.equal(literatureEvidenceStatus(item, [chunk]), '可定位全文片段')
   assert.equal(literatureEvidenceStatus(item, [{ ...chunk, reopenable: false }]), '题录')
+})
+
+
+test('author truncation is explicit and XML titles keep complete scientific names', () => {
+  const { literatureAuthors, bibliographyText, inlineLiteratureText } = service('literaturePresentation')
+  assert.equal(literatureAuthors(['A', 'B', 'C']), 'A、B、C')
+  assert.equal(literatureAuthors(['A', 'B', 'C', 'D']), 'A、B、C 等')
+  assert.equal(bibliographyText('<![CDATA[Li<Subscript>2</Subscript>S-P<Subscript>2</Subscript>S<Subscript>5</Subscript> electrolyte]]>'), 'Li2S-P2S5 electrolyte')
+  assert.equal(bibliographyText(String.raw`<!\[CDATA\[Li2S electrolyte\]\]>`), 'Li2S electrolyte')
+  assert.equal(bibliographyText('&lt;Subscript&gt;2&lt;/Subscript&gt;'), '2')
+  assert.equal(inlineLiteratureText('文献《<![CDATA[Li<Subscript>2</Subscript>S]]>》表明 p<0.05。'), '文献《Li2S》表明 p<0.05。')
+})
+
+
+test('quota errors describe occupied task slots without offering a new task queue', async () => {
+  const { readApiError } = service('apiErrors')
+  const error = await readApiError({ status: 429, text: async () => JSON.stringify({ detail: { agent: 'topic', occupied: 5, running: 5, queued: 0, limit: 5, message: '请等待任务完成。' } }) })
+  assert.match(error.message, /占用 5 个任务名额/)
+  assert.doesNotMatch(error.message, /排队/)
 })

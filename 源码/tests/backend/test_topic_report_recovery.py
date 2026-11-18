@@ -207,6 +207,23 @@ def test_raw_user_conditions_support_proposals_but_not_literature_facts():
     assert text_issues('以0.3ha为阈值。', ['E1'], packet)
 
 
+def test_candidate_reason_can_open_with_user_condition_before_proposed_action():
+    from app.agents.topic_selection.scholarly_report import text_issues
+    packet, _ = packet_and_draft()
+    packet['user_conditions'] = '面积不小于10 cm²的光伏组件，拟比较封装和界面钝化方案。'
+    text = '在面积不小于10 cm²的组件中，拟比较不同封装层对功率衰减的影响。'
+    assert not text_issues(text, ['E1'], packet, proposal=True)
+    assert text_issues('已有研究在面积不小于10 cm²的组件中进行测试。', ['E1'], packet, proposal=True)
+
+
+def test_t70_and_t80_are_scientific_metrics_not_internal_theme_ids():
+    from app.agents.topic_selection.scholarly_report import text_issues
+    packet, _ = packet_and_draft()
+    packet['sources'][0]['content'] = 'T80为组件输出衰减至初始值80%的时间。'
+    assert not any('内部编号' in reason for reason in text_issues(
+        '拟记录组件达到T80的时间。', ['E1'], packet, proposal=True))
+
+
 def test_summary_checks_proposed_conditions_per_clause_without_supporting_paper_claims():
     from app.agents.topic_selection.scholarly_report import text_issues
     packet, _ = packet_and_draft()

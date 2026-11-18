@@ -34,3 +34,7 @@ export const listAllTasks = async () => ({ items: history, total: history.length
 export const previewHistoryCleanup = async () => ({ eligible_count: 2, skipped_count: 1 })
 export const clearTaskHistory = async () => { throw new Error('验收环境禁止实际删除；仅测试确认弹窗和取消操作') }
 export const getAuthManager = () => ({ isAuthenticated: () => true, showLoginModal: () => {} })
+
+export const addNstlCollection = async () => ({ success: true })
+export const deleteNstlCollection = async () => ({ success: true })
+export const getNstlCollectionIds = async () => []

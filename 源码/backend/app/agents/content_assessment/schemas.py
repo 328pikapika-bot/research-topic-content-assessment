@@ -479,6 +479,11 @@ class QueryPlan(BaseModel):
     source_scope: list[str] = Field(default_factory=lambda: ["NSTL"])
     pagination: dict[str, Any] = Field(default_factory=lambda: {"page": 1, "page_size": 20})
     stop_condition: str = "完成候选召回并保留可定位证据"
+    reader_topic: str = ""
+    reader_summary: str = ""
+    reader_focus: str = ""
+    reader_scope: str = ""
+    reader_result: str = ""
 
     @model_validator(mode="after")
     def normalize_scope_ids(self) -> "QueryPlan":

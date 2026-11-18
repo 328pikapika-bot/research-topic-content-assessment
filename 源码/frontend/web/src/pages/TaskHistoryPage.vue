@@ -39,7 +39,7 @@
           <option value="all">全部</option>
           <option value="completed">已完成</option>
           <option value="running">进行中</option>
-          <option value="queued">排队中</option>
+          <option value="queued">等待处理</option>
           <option value="attention">待处理</option>
           <option value="awaiting_confirmation">待确认</option>
           <option value="awaiting_review">待复核</option>
@@ -103,7 +103,7 @@
             <i><em :style="{ width: `${progressPercent(task)}%` }"></em></i>
           </div>
           <div class="history-row__meta"><span>创建时间</span><strong>{{ formatDateTime(task.created_at) }}</strong></div>
-          <span class="workspace-status" :class="`workspace-status--${task.status}`">{{ recoveryLabel(task.recovery) || statusLabel(task.status) }}</span>
+          <span class="workspace-status" :class="`workspace-status--${task.status}`" :title="recoveryNotice(task.recovery, task.status)?.description">{{ recoveryLabel(task.recovery, task.status) || statusLabel(task.status) }}</span>
           <div class="history-row__actions">
             <button type="button" class="history-row__open" aria-label="查看任务" title="查看任务" @click.stop="openTask(task)"><span class="material-icons-outlined" aria-hidden="true">arrow_forward</span></button>
             <button type="button" class="history-row__delete" aria-label="删除任务" :title="canDelete(task) ? '删除任务' : '未结束任务不会被删除'" :disabled="Boolean(deletingId) || clearing || !canDelete(task)" @click.stop="removeTask(task)"><span class="material-icons-outlined" aria-hidden="true">delete_outline</span></button>
@@ -120,7 +120,7 @@
 </template>
 
 <script setup lang="ts">
-import { recoveryLabel } from '../services/generationRecovery'
+import { recoveryLabel, recoveryNotice } from '../services/generationRecovery'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { deleteContentAssessmentTask } from '../services/contentAssessmentUiApi'
 import { deleteTopicSelectionTask } from '../services/topicSelectionApi'
@@ -163,12 +163,12 @@ const filteredTasks = computed(() => tasks.value)
 function isTopic(task: any) { return task?.task_type === '智能选题' }
 function taskId(task: any) { return String(task?.task_id || task?.id || '') }
 function canDelete(task: any) { return ['completed', 'failed', 'cancelled', 'superseded', 'model_unavailable', 'time_out', 'blocked'].includes(task.status) }
-function statusLabel(status: string) { return ({ completed: '已完成', running: '进行中', processing: '进行中', queued: '排队中', failed: '失败', time_out: '超时', cancelled: '已停止', awaiting_confirmation: '待确认', awaiting_clarification: '待确认', awaiting_quality_continue: '待继续生成', awaiting_review: '待复核', awaiting_correction: '待补正', superseded: '已进入补正版本', model_unavailable: '模型不可用', blocked: '待处理' } as Record<string, string>)[status] || '待处理' }
+function statusLabel(status: string) { return ({ completed: '已完成', running: '进行中', processing: '进行中', queued: '等待处理', failed: '失败', time_out: '超时', cancelled: '已停止', awaiting_confirmation: '待确认', awaiting_clarification: '待确认', awaiting_quality_continue: '待继续生成', awaiting_review: '待复核', awaiting_correction: '待补正', superseded: '已进入补正版本', model_unavailable: '模型不可用', blocked: '待处理' } as Record<string, string>)[status] || '待处理' }
 function progressValues(task: any) { const total = Math.max(1, Number(task.total_steps || (isTopic(task) ? 9 : 8))); return { completed: Math.min(Number(task.completed_steps || 0), total), total } }
-function progressLabel(task: any) { return task.status === 'completed' ? '5/5' : recoveryLabel(task.recovery) || statusLabel(task.status) }
+function progressLabel(task: any) { return task.status === 'completed' ? (isTopic(task) ? '6/6' : '5/5') : recoveryLabel(task.recovery, task.status) || statusLabel(task.status) }
 function progressPercent(task: any) { const value = progressValues(task); return task.status === 'completed' ? 100 : Math.round(value.completed / value.total * 100) }
 function stageLabel(task: any) {
-  if (task.status === 'completed') return '五步已完成'
+  if (task.status === 'completed') return '全部步骤已完成'
   if (task.status === 'superseded') return '原任务保留，后续在补正版执行'
   const key = String(task.current_stage || '')
   return ({

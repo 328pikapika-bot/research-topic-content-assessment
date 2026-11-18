@@ -19,7 +19,8 @@ const ts = require('./frontend/web/node_modules/typescript')
 const source = fs.readFileSync('./frontend/web/src/services/homepageDraft.ts', 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
 const exports = {}
-vm.runInNewContext(compiled, { exports })
+const caseCatalog = JSON.parse(fs.readFileSync('./frontend/web/src/services/homepageCases.json', 'utf8'))
+vm.runInNewContext(compiled, { exports, require: name => name === './homepageCases.json' ? { default: caseCatalog } : require(name) })
 process.stdout.write(JSON.stringify(exports.ASSESSMENT_CASES.map(({ id, input }) => ({ id, input }))))
 """
     return json.loads(subprocess.run(["node", "-e", script], cwd=root, capture_output=True,
@@ -48,7 +49,9 @@ def test_six_current_cases_pass_without_model_and_allow_task_start(monkeypatch):
 def test_six_current_cases_extract_real_anchored_points_without_supplement_popup(monkeypatch):
     from app.agents.content_assessment.graph import ContentAssessmentGraph
     graph = ContentAssessmentGraph()
-    monkeypatch.setattr(graph, "_request_model_json", lambda *args, **kwargs: pytest.fail("Structured examples need no extraction call"))
+    async def unavailable(*args, **kwargs):
+        return None
+    monkeypatch.setattr(graph, "_request_model_json", unavailable)
     for case in current_cases():
         result = asyncio.run(preview.preview_nine_fields(case["input"], [], "alice"))
         state = graph.create_initial_state(case["input"], artifact_type=result["resolved_artifact_type"], scenario_id=case["id"])

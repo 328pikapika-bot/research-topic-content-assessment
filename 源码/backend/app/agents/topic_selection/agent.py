@@ -358,7 +358,14 @@ class TopicSelectionAgent:
                 "constraints": profile.resource_constraints,
                 "exclusions": profile.exclusions,
                 "materials": self._model_materials(state),
-                "output_schema": {"concise_title": "10-24个中文字符的概括性标题", "boundary": "string", "research_question": "string", "missing_fields": ["string"], "terms": [{"preferred": "string", "alternatives": ["string"], "english_terms": ["string"]}]},
+                "output_schema": {
+                    "concise_title": "10-24个中文字符的概括性标题",
+                    "boundary": "string", "research_question": "string",
+                    "material_summary": "有上传材料时，以1至3句话概括研究对象、目的、方法或范围，最多160字；不要复述原文或目录，没有依据的信息不写",
+                    "document_summaries": [{"material_ref": "输入中的材料编号", "summary": "本份材料的要点概括，最多120字"}],
+                    "missing_fields": ["string"],
+                    "terms": [{"preferred": "string", "alternatives": ["string"], "english_terms": ["string"]}],
+                },
             },
             expected_keys={"boundary", "research_question", "terms"},
         )
@@ -374,6 +381,18 @@ class TopicSelectionAgent:
                 state.constraint_card.boundary_text = boundary[:1200]
             if question:
                 profile.research_question = question[:1200]
+            material_summary = self._redact_model_text(str(model_payload.get("material_summary") or ""), 320)
+            if profile.documents and material_summary:
+                profile.material_summary = material_summary[:240]
+            raw_document_summaries = model_payload.get("document_summaries") or []
+            document_summaries = {
+                str(item.get("material_ref") or ""): self._redact_model_text(str(item.get("summary") or ""), 240)
+                for item in raw_document_summaries
+                if isinstance(item, dict) and item.get("material_ref") and item.get("summary")
+            } if isinstance(raw_document_summaries, list) else {}
+            for document in profile.documents:
+                if document_summaries.get(document.document_id):
+                    document.summary = document_summaries[document.document_id][:180]
             model_missing = [str(item)[:160] for item in model_payload.get("missing_fields", []) if str(item).strip()]
             profile.missing_fields = list(dict.fromkeys([*profile.missing_fields, *model_missing]))[:12]
             state.constraint_card.unresolved = list(profile.missing_fields)
@@ -1504,6 +1523,14 @@ class TopicSelectionAgent:
     @staticmethod
     def _normalize_candidate_reader_content(candidate: TopicCandidate, proposed: Any, state: TopicSelectionState) -> dict[str, Any]:
         evidence_ids = {item.evidence_id for item in state.evidence_pool}
+        # Older/model fallback fields carry explicit citations in their prose.
+        # Preserve their identity before reader cleanup, including related
+        # background sources; this does not upgrade their evidential relation.
+        inline_ids = set(re.findall(r"\bE-[A-Za-z0-9_-]+\b", " ".join([
+            candidate.innovation, candidate.distinctiveness_rationale, candidate.research_object,
+            candidate.research_question, candidate.hypothesis, candidate.method_route,
+        ]))) & evidence_ids
+        candidate.evidence_ids = list(dict.fromkeys([*candidate.evidence_ids, *sorted(inline_ids)]))
         allowed = evidence_ids & set(candidate.evidence_ids)
         substantive = {
             link.evidence_id for link in candidate.evidence_links
@@ -1532,6 +1559,18 @@ class TopicSelectionAgent:
         for key, fallback_item in fallback["research_content"].items():
             if not normalized["research_content"][key]["text"]:
                 normalized["research_content"][key] = fallback_item
+        if not normalized["evidence_summary"]["text"]:
+            background_ids = list(dict.fromkeys(
+                link.evidence_id for link in candidate.evidence_links
+                if link.relation == "context" and link.evidence_id in allowed
+                and any(source.evidence_id == link.evidence_id and source.abstract.strip()
+                        for source in state.evidence_pool)
+            ))[:2]
+            if background_ids:
+                normalized["background_summary"] = {
+                    "text": "所列文献提供相关研究背景；本选题的预期结果仍需独立验证。",
+                    "evidence_ids": background_ids,
+                }
         return normalized
 
     async def _scoring_ranking(self, state: TopicSelectionState, callback: StageCallback | None = None) -> None:
@@ -1878,7 +1917,7 @@ class TopicSelectionAgent:
             section["content_hash"] = hashlib.sha256(str(section.get("content") or "").encode("utf-8")).hexdigest()
         state.report_plan.chart_manifest = state.report_plan.chart_specs
         state.report_snapshot.chart_manifest = [{"key": item["key"], "chart_version": item["chart_version"], "data_status": item["data_status"]} for item in state.report_plan.chart_specs]
-        snapshot_hash = hashlib.sha256(json.dumps({"sections": state.report_plan.sections, "tables": state.report_plan.table_specs, "charts": state.report_plan.chart_specs, "citations": citations}, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
+        snapshot_hash = hashlib.sha256(json.dumps({"sections": state.report_plan.sections, "tables": state.report_plan.table_specs, "charts": state.report_plan.chart_specs, "citations": state.report_plan.citation_map}, ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
         state.report_snapshot.format_hashes = {key: snapshot_hash for key in ("content", "md", "html", "docx", "pdf")}
         state.report_plan.toc_entries = [ReportTocEntry(key=item["key"], title=item["title"], level=1, is_appendix=item["key"].startswith("appendix")) for item in state.report_plan.sections]
         state.report_plan.format_consistency = {"report_version": report_version, "evidence_pool_version": state.versions.evidence_pool_version, "chart_data_snapshot_version": state.versions.chart_data_snapshot_version, "template_version": state.versions.template_version, "content_version": state.report_snapshot.content_version, "citation_version": state.report_snapshot.citation_version, "chart_version": state.report_snapshot.chart_version, "formats": ["md", "html", "docx", "pdf"]}
@@ -2601,7 +2640,7 @@ class TopicSelectionAgent:
     @staticmethod
     def _document_from_upload(item: dict[str, Any]) -> Any:
         from app.agents.topic_selection.schemas import DocumentRecord
-        return DocumentRecord(document_id=str(item.get("file_id") or item.get("id") or uuid4().hex[:10]), name=str(item.get("filename") or item.get("name") or "上传材料"), mime_type=str(item.get("mime_type") or item.get("content_type") or ""), status="parsed" if item.get("text") or item.get("content") else "pending", excerpt=str(item.get("text") or item.get("content") or "")[:1000])
+        return DocumentRecord(document_id=str(item.get("file_id") or item.get("id") or uuid4().hex[:10]), name=str(item.get("filename") or item.get("name") or "上传材料"), mime_type=str(item.get("mime_type") or item.get("content_type") or ""), status="parsed" if item.get("text") or item.get("content") else "pending", summary=str(item.get("summary") or item.get("description") or "")[:600], excerpt=str(item.get("text") or item.get("content") or "")[:1000])
 
     @staticmethod
     def _build_term_map(text: str) -> list[TermMapEntry]:
@@ -3001,7 +3040,7 @@ class TopicSelectionAgent:
              "data_snapshot_version": snapshot, "report_version": report_version,
              "caption": "同色连线关联同一研究方向；参与学科提供相应方法与研究视角。"},
             {"key": "theme_network", "title": "研究主题层级", "chart_type": "network", "visual_role": "theme_hierarchy", "data": {"root": state.theme_tree.root, "display_root": state.theme_tree.display_root, "nodes": [node.model_dump() for node in state.theme_tree.nodes], "edges": state.theme_tree.edges}, "source_ids": [item.evidence_id for item in state.evidence_pool], "data_snapshot_version": snapshot, "report_version": report_version, "caption": "层级只表示已记录的主题归属；关键词为叶节点标签，父节点缺失或循环关系单列待确认。"},
-            {"key": "trend_comparison", "title": "年度文献与子方向趋势", "chart_type": "stacked_bar", "section_key": "literature_trends", "visual_role": "trend", "data": {"years": years, "series": theme_series}, "source_ids": [item.evidence_id for item in state.evidence_pool], "data_snapshot_version": snapshot, "report_version": report_version, "caption": "按年份堆叠展示各子方向在当前锁定样本中的文献数量；样本覆盖不代表领域全部产出。"},
+            {"key": "trend_comparison", "title": "年度文献与子方向趋势", "chart_type": "grouped_bar", "section_key": "literature_trends", "visual_role": "trend", "data": {"years": years, "series": theme_series}, "source_ids": [item.evidence_id for item in state.evidence_pool], "data_snapshot_version": snapshot, "report_version": report_version, "caption": "按年份并列展示各子方向在当前锁定样本中的文献数量；样本覆盖不代表领域全部产出。"},
             {"key": "core_literature_top10", "title": "核心文献被引 Top10", "chart_type": "bar", "section_key": "core_literature", "visual_role": "core_literature", "data": [{"label": item.title, "citation_number": state.report_plan.citation_map.get(item.evidence_id), "value": item.citation_count, "evidence_id": item.evidence_id} for item in top_papers], "source_ids": [item.evidence_id for item in top_papers], "data_snapshot_version": snapshot, "report_version": report_version, "data_basis": "citation_count", "caption": "横轴为检索网关返回的实际被引次数，并使用对数刻度；未返回被引数据时不生成图表。"},
             {"key": "gap_evidence_coverage", "title": "竞争热度与空白空间", "chart_type": "bubble", "visual_role": "gap_opportunity", "data": [{"label": gap.gap_id, "x": round(gap.competition_heat * 50, 2), "y": round(gap.opportunity_space * 50, 2), "size": max(1, len(gap.evidence_ids)), "color": round(sum(item.citation_count for item in state.evidence_pool if item.evidence_id in gap.evidence_ids) / max(1, len(gap.evidence_ids)), 2), "status": gap.validation_status} for gap in state.gaps], "source_ids": [item.evidence_id for item in state.evidence_pool], "data_snapshot_version": snapshot, "report_version": report_version, "caption": "横轴为竞争热度，纵轴为空白空间；气泡大小表示支持样本量，颜色深浅表示篇均被引。零记录只表示当前检索覆盖不足。"},
             {"key": "candidate_radar", "title": "候选题三维评估", "chart_type": "radar", "section_key": "candidate_evaluation", "visual_role": "candidate_evaluation", "data": {"dimensions": ["新颖性", "可行性", "逆竞争压力"], "max_value": 50, "rows": radar_rows}, "source_ids": [item.evidence_id for item in state.evidence_pool], "data_snapshot_version": snapshot, "report_version": report_version, "caption": f"三项满分均为 50；逆竞争压力越高表示竞争压力越低。{missing_scores} 个候选题缺少可比较评分，未绘入图中。"},

@@ -199,7 +199,8 @@ def ground_discovery(state, proposals: list[dict[str, Any]]) -> None:
         is_primary = lambda source: normalized(source.get("proposed_method_name", "")) == normalized(primary)
         if primary and not any(is_primary(source) for source in link.method_evidence):
             recovered = primary_method_sources(state, primary, link.support_evidence_ids)
-            link.method_evidence = recovered + link.method_evidence if recovered else []
+            if recovered:
+                link.method_evidence = recovered + link.method_evidence
         # Always show the primary technique's literal source before supporting
         # instrumentation or other related techniques.
         link.method_evidence.sort(key=lambda source: not is_primary(source))
@@ -234,7 +235,8 @@ def ground_discovery(state, proposals: list[dict[str, Any]]) -> None:
         different = len({normalized(p.discipline) for p in participants if p.evidence_ids}) > 1
         link.association_kind = "interdisciplinary" if different else "theme_association" if link.core_discipline else "unverified"
         generic = normalized(link.transferable_method) in {"人工智能", "机器学习", "深度学习", "统计分析", "数学方法", "优化方法", "ai"}
-        grounded = bool(link.method_evidence and link.transferable_method and not generic and link.relation_basis)
+        grounded = bool(link.method_evidence and any(is_primary(source) for source in link.method_evidence)
+                        and link.transferable_method and not generic and link.relation_basis)
         link.status = "validated" if grounded else "candidate"
         if not link.validation_conditions:
             link.validation_conditions = "以当前研究对象设置独立对照，统一数据、指标和验证条件，检验方法适用性与失效边界。"

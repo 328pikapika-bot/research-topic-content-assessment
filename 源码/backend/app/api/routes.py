@@ -10,7 +10,7 @@ import re
 import uuid
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -68,7 +68,7 @@ from app.repositories.content_assessment_task_history import (
     ACTIVE_STATUSES, ATTENTION_STATUSES, TaskHistoryError, get_task_history_repo, HISTORY_DELETABLE_STATUSES,
 )
 from app.services.content_assessment_service import ContentAssessmentService
-from app.services.export_service import build_docx, build_html, build_markdown, build_pdf, build_evidence_package
+from app.services.export_service import build_docx, build_html, build_markdown, build_markdown_bundle, build_pdf, build_evidence_package
 from app.services.file_upload_parser import (
     FileParseError,
     SensitiveCheckUnavailable,
@@ -81,14 +81,66 @@ from app.services.file_upload_parser import (
 )
 from app.services.task_persistence import now_beijing_iso, persist_task_state
 from app.services.topic_selection_service import TopicSelectionService
-from app.services.topic_selection_report import build_topic_docx, build_topic_html, build_topic_markdown, build_topic_pdf, _render_chart_png, _bounded_export_state, TOPIC_CHART_RENDER_VERSION
+from app.services.topic_selection_report import build_topic_docx, build_topic_html, build_topic_markdown, build_topic_markdown_bundle, build_topic_pdf, _render_chart_png, _bounded_export_state, TOPIC_CHART_RENDER_VERSION
 from app.services.topic_task_persistence import now_beijing_iso as topic_now_beijing_iso, persist_topic_task_state, mark_topic_task_failed, TaskHistoryConflict
 from app.services.uploaded_file_context import UploadedFileContextBuilder
 from app.utils.id_generator import generate_run_id
 from app.services.nine_fields_preview import preview_nine_fields
+from app.services.public_cases import case_catalog, get_case
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+@router.get("/v1/public-cases")
+async def list_public_cases() -> dict[str, Any]:
+    return case_catalog()
+
+
+@router.get("/v1/public-cases/{case_id}")
+async def get_public_case(case_id: str) -> dict[str, Any]:
+    payload, detail = get_case(case_id)
+    return {"success": True, "case_id": payload["case_id"], "version": payload["version"], "agent": payload["agent"], "data": detail}
+
+
+@router.get("/v1/public-cases/{case_id}/export")
+async def export_public_case(case_id: str, format: str = Query(default="docx", pattern="^(md|html|docx|pdf)$")) -> Response:
+    payload, detail = get_case(case_id)
+    state_data = detail.get("state") or {}
+    if payload["agent"] == "assessment":
+        state = ContentAssessmentState.model_validate(state_data)
+        if format == "docx":
+            content, filename = await asyncio.to_thread(build_docx, state)
+            media_type = _EXPORT_TYPES["docx"]
+        elif format == "pdf":
+            content, filename = await asyncio.to_thread(build_pdf, state)
+            media_type = _EXPORT_TYPES["pdf"]
+        elif format == "html":
+            text, filename = build_html(state)
+            content, media_type = text.encode("utf-8"), "text/html; charset=utf-8"
+        else:
+            content, filename = await asyncio.to_thread(build_markdown_bundle, state)
+            media_type = "application/zip"
+    else:
+        state = TopicSelectionState.model_validate(state_data)
+        if format == "docx":
+            content, filename = await asyncio.to_thread(build_topic_docx, state)
+            media_type = _EXPORT_TYPES["docx"]
+        elif format == "pdf":
+            content, filename = await asyncio.to_thread(build_topic_pdf, state)
+            media_type = _EXPORT_TYPES["pdf"]
+        elif format == "html":
+            content, filename = build_topic_html(state)
+            media_type = "text/html; charset=utf-8"
+        else:
+            content, filename = await asyncio.to_thread(build_topic_markdown_bundle, state)
+            media_type = "application/zip"
+    disposition = f'attachment; filename="{case_id}.{format}"; filename*=UTF-8\'\'{quote(filename)}'
+    return Response(content=content, media_type=media_type, headers={
+        "Content-Disposition": disposition,
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Cache-Control": "no-cache",
+    })
 
 
 @lru_cache(maxsize=1)
@@ -283,7 +335,7 @@ async def list_all_tasks(
     # Statistics deliberately classifies legacy/unknown statuses as attention.
     # Query the same way so the attention filter cannot show an empty page while
     # its summary card contains those records.
-    exclude_statuses = list({*ACTIVE_STATUSES, *ATTENTION_STATUSES, "completed", "cancelled"}) if status == "attention" else None
+    exclude_statuses = list({*ACTIVE_STATUSES, "completed", "cancelled"}) if status == "attention" else None
     beijing = timezone(timedelta(hours=8))
     after = created_after or (datetime.now(beijing) - timedelta(days=days) if days else None)
     try:
@@ -1141,6 +1193,8 @@ async def export_content_assessment_report(
         elif format == "html":
             content, filename = await asyncio.to_thread(build_html, state)
             content = content.encode("utf-8")
+        elif format == "md":
+            content, filename = await asyncio.to_thread(build_markdown_bundle, state)
         else:
             content, filename = await asyncio.to_thread(build_markdown, state)
             content = content.encode("utf-8")
@@ -1164,7 +1218,7 @@ async def export_content_assessment_report(
     ascii_fallback = f"content-assessment-report.{format}"
     encoded_filename = quote(filename)
     content_disposition = f"{disposition}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{encoded_filename}"
-    return Response(content=content, media_type="application/zip" if format == "zip" else _EXPORT_TYPES[format], headers={
+    return Response(content=content, media_type="application/zip" if format in {"md", "zip"} else _EXPORT_TYPES[format], headers={
         "Content-Disposition": content_disposition,
         "Access-Control-Expose-Headers": "Content-Disposition",
     })
@@ -1730,6 +1784,57 @@ async def rerun_topic_correction(
         raise HTTPException(status_code=500, detail=f"创建补正版失败：{exc}") from exc
 
 
+
+
+class TopicRecoveryContinueRequest(BaseModel):
+    supplemental_input: str = Field(default="", max_length=12000)
+    action: Literal["supplement", "retry"] = "supplement"
+
+
+@router.post("/v1/topic-selection/tasks/{task_id}/recovery/continue", response_model=TopicSelectionRunResponse)
+async def continue_topic_recovery(
+    task_id: str,
+    request_body: TopicRecoveryContinueRequest,
+    x_user_scope: str | None = Header(default=None, alias="X-User-Scope"),
+    task_manager: TopicTaskManager = Depends(_get_topic_task_manager),
+) -> TopicSelectionRunResponse:
+    """Resume a content-blocked topic task after the user supplements material."""
+    scope = _resolve_user_scope(x_user_scope)
+    task = await get_task_history_repo().get(task_id, scope)
+    if not task or task.get("task_type") != "智能选题" or not task.get("state"):
+        raise HTTPException(status_code=404, detail="选题任务不存在或状态已丢失")
+    if task_manager.is_running(task_id):
+        raise HTTPException(status_code=409, detail="任务正在运行，请勿重复提交")
+    if task.get("status") in {"completed", "cancelled", "superseded"}:
+        raise HTTPException(status_code=409, detail="任务已结束，请刷新查看最新结果")
+    state = TopicSelectionState.model_validate(task["state"])
+    record = state.output_json.get("generation_recovery") or {}
+    if not record.get("enabled") or record.get("phase") != "waiting_system":
+        raise HTTPException(status_code=409, detail="任务当前无需手动补充继续")
+    supplement = request_body.supplemental_input.strip()
+    if request_body.action == "supplement" and not supplement:
+        raise HTTPException(status_code=422, detail="请补充材料或说明后继续任务")
+    stage = str(record.get("stage") or state.resume_from_stage or "report_publish")
+    if supplement:
+        materials = state.output_json.setdefault("supplemental_materials", [])
+        materials.append({"name": "用户补充材料", "content": supplement, "supplemented_at": topic_now_beijing_iso()})
+        state.raw_user_input = f"{state.raw_user_input}\n\n补充材料：{supplement}"
+        state.constraint_card.must_include = list(dict.fromkeys([*state.constraint_card.must_include, f"补充要求：{supplement}"]))
+    for trace in state.stage_trace:
+        if trace.stage_key == stage and trace.status == "blocked":
+            trace.status = "pending"
+    # An explicit retry grants a bounded repair attempt. Source validation
+    # still runs and may pause again; never mark unverified content complete.
+    state.stage_artifacts.get("report_publish", {}).pop("paragraph_repair_budget", None)
+    state.stage_artifacts.get("report_publish", {}).pop("structure_repair_budget", None)
+    state.stage_artifacts.get("crosslink_gap", {}).pop("generation_attempts", None)
+    state.stage_artifacts.get("crosslink_gap", {}).pop("generation_payload", None)
+    state.output_json.pop("generation_recovery", None)
+    state.resume_from_stage = stage
+    state.current_stage = stage
+    await _resume_task(task_manager, task_id, scope, state, "topic", task)
+    return TopicSelectionRunResponse(run_id=task_id, status="running", state=state)
+
 @router.post("/v1/topic-selection/tasks/{task_id}/stop")
 async def stop_topic_selection_task(task_id: str, x_user_scope: str | None = Header(default=None, alias="X-User-Scope"), task_manager: TopicTaskManager = Depends(_get_topic_task_manager)) -> dict[str, Any]:
     scope = _resolve_user_scope(x_user_scope)
@@ -1793,6 +1898,9 @@ async def export_topic_selection_report(
     elif format == "html":
         content, filename = build_topic_html(state)
         media_type = "text/html; charset=utf-8"
+    elif format == "md":
+        content, filename = await asyncio.to_thread(build_topic_markdown_bundle, state)
+        media_type = "application/zip"
     else:
         content, filename = build_topic_markdown(state)
         media_type = "text/markdown; charset=utf-8"

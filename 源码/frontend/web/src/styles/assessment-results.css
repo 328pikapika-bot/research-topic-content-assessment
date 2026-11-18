@@ -8,7 +8,7 @@
 .task-detail-page .modern-stage-output__timing { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; color: #607086; font-size: 12px; }
 .task-detail-page .modern-stage-strip button.active { border-color: #626fec; background: #f5f6ff; }
 .task-detail-page .modern-stage-strip button.active i { background: #626fec; color: #fff; }
-.task-detail-page .modern-stage-strip button.is-completed i { background: #e5f5ef; color: #258464; }
+.task-detail-page .modern-stage-strip button.is-completed i, .task-detail-page .modern-stage-strip button.is-degraded i { background: #e5f5ef; color: #258464; }
 .task-detail-page .modern-stage-strip button.is-failed i { background: #fbe8e8; color: #bd4040; }
 .task-detail-page .modern-stage-strip button:disabled { opacity: .5; cursor: not-allowed; }
 .task-detail-page .modern-stage-strip .material-icons-outlined { font-size: 17px; }
@@ -215,3 +215,13 @@
 .modern-generation-recovery h2{margin:0 0 6px;font-size:17px}
 .modern-generation-recovery p{margin:4px 0;font-size:15px;line-height:1.7}
 @media(max-width:600px){.modern-generation-recovery{align-items:stretch;flex-direction:column;gap:12px}}
+
+.task-detail-page .modern-stage-strip button > span { justify-content: flex-start; }
+.task-detail-page .modern-evidence-groups > details > summary { color: #245c99; }
+.assessment-query-plans > summary { color: #245c99 !important; }
+.assessment-query-plans > article { padding: 12px 0; border-top: 1px solid #e8edf3; }
+.assessment-query-plans > article > p { margin: 6px 0; }
+.assessment-query-plans ul { margin: 6px 0; padding-left: 20px; }
+.assessment-query-plans li { margin: 4px 0; }
+.assessment-query-plans article details > summary { color: #245c99; }
+.assessment-query-raw { overflow-wrap: anywhere; color: #667085; font-size: 13px; }

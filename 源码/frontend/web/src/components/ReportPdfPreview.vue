@@ -1,7 +1,7 @@
 <template>
-  <section ref="viewer" class="report-pdf-viewer" :class="{ 'report-pdf-viewer--expanded': expanded }" aria-label="正式报告 PDF 阅读器">
+  <section ref="viewer" class="report-pdf-viewer" :class="{ 'report-pdf-viewer--expanded': expanded, 'report-pdf-viewer--compact': compact }" aria-label="正式报告 PDF 阅读器">
     <header class="report-pdf-toolbar">
-      <div class="report-pdf-title"><span>正式报告预览</span><h2>{{ title }}</h2></div>
+      <div v-if="!compact || expanded || nativeFullscreen" class="report-pdf-title"><span>正式报告预览</span><h2>{{ title }}</h2></div>
       <div class="report-pdf-controls">
         <button type="button" :disabled="pageNumber <= 1 || !pageCount" @click="goToPage(pageNumber - 1)" aria-label="上一页">‹</button>
         <label>第 <input v-model.number="pageNumber" type="number" min="1" :max="pageCount || 1" @change="goToPage(pageNumber)" @keydown.enter="goToPage(pageNumber)" aria-label="报告页码" /> / {{ pageCount || '—' }} 页</label>
@@ -39,7 +39,7 @@ import 'pdfjs-dist/web/pdf_viewer.css'
 import { fetchContentAssessmentReportPdf } from '../services/contentAssessmentUiApi'
 
 GlobalWorkerOptions.workerSrc = workerUrl
-const props = defineProps<{ taskId: string; title: string; version?: string; downloading?: boolean; loadPdf?: (taskId: string, signal?: AbortSignal) => Promise<Blob> }>()
+const props = defineProps<{ taskId: string; title: string; version?: string; downloading?: boolean; compact?: boolean; loadPdf?: (taskId: string, signal?: AbortSignal) => Promise<Blob> }>()
 const emit = defineEmits<{ download: []; loaded: [pages: number] }>()
 const viewer = ref<HTMLElement | null>(null)
 const scroller = ref<HTMLElement | null>(null)

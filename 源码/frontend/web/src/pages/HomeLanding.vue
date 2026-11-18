@@ -145,19 +145,19 @@
         <template v-if="activeAgent === 'assessment'">
           <div class="hl-assessment-case-columns">
             <div v-for="group in assessmentCaseGroups" :key="group.key" class="hl-assessment-case-column" :class="`is-${group.key}`" :aria-label="group.label">
-              <button v-for="(sample, index) in group.items" :key="sample.id" type="button" class="hl-case" :disabled="isLoading" @click="fillCase(sample)">
+              <button v-for="(sample, index) in group.items" :key="sample.id" type="button" class="hl-case" :disabled="isLoading || !publicCasesReady" @click="openCase(sample)">
                 <span class="hl-case__visual material-icons-outlined" aria-hidden="true">{{ sample.icon }}</span>
                 <small><b>{{ group.label.replace('案例', '') }}</b> · {{ sample.category.replace(/^.*? · /, '') }} · 案例 {{ String(index + 1).padStart(2, '0') }}</small>
-                <strong>{{ sample.title }}</strong><span class="hl-case__agent">点击后直接填入{{ group.label.replace('案例', '') }}材料</span>
+                <strong>{{ sample.title }}</strong><span class="hl-case__agent">{{ publicCasesReady ? '查看已完成案例' : '案例报告准备中' }}</span>
               </button>
             </div>
           </div>
         </template>
         <div v-else class="hl-cases-grid">
-          <button v-for="(sample, index) in visibleCases" :key="sample.id" type="button" class="hl-case" :disabled="isLoading" @click="fillCase(sample)">
+          <button v-for="(sample, index) in visibleCases" :key="sample.id" type="button" class="hl-case" :disabled="isLoading || !publicCasesReady" @click="openCase(sample)">
             <span class="hl-case__visual material-icons-outlined" aria-hidden="true">{{ sample.icon }}</span>
             <small>案例 {{ String(index + 1).padStart(2, '0') }} · {{ sample.category }}</small>
-            <strong>{{ sample.title }}</strong><span class="hl-case__agent">{{ sample.agent === 'topic' ? '智能选题' : '内容评估' }}</span>
+            <strong>{{ sample.title }}</strong><span class="hl-case__agent">{{ publicCasesReady ? '查看已完成案例' : '案例报告准备中' }}</span>
           </button>
         </div>
       </section>
@@ -185,7 +185,7 @@
           <p id="rate-limit-title" class="my_dialog_content_tit"><span class="material-icons-outlined">warning</span>提示</p>
           <p class="red">{{ rateLimitMessage }}</p>
         </div>
-        <div class="dialog-footer"><button class="btn" type="button" @click="openQuotaHistory('running')">查看执行任务</button><button class="btn" type="button" @click="openQuotaHistory('queued')">查看排队任务</button><button class="btn" type="button" @click="confirmRateLimitWarning">关闭</button></div>
+        <div class="dialog-footer"><button class="btn" type="button" @click="openQuotaHistory('running')">查看执行任务</button><button class="btn" type="button" @click="confirmRateLimitWarning">关闭</button></div>
       </div>
     </div>
   </div>
@@ -203,6 +203,7 @@ import { errorKind, trackEvent, trackOutcome } from '../tracker/contentAssessmen
 import * as contentAssessmentApi from '../services/contentAssessmentApi'
 import { ApiError } from '../services/apiErrors'
 import { emptyNineDraft, mergeNineDraft, serializeNineDraft, topicYearRange, PUBLIC_CASES, TOPIC_CASES, ASSESSMENT_CASES, type OutputPreference, type HomepageCase, type SelectedAssessmentType } from '../services/homepageDraft'
+import { getPublicCaseCatalog } from '../services/contentAssessmentUiApi'
 import { assessmentTypeLabels, splitHomepageAssessmentInput, homepageAssessmentBody, homepageAssessmentSource, homepageAssessmentGuide, normalizeAssessmentPreview, type AssessmentInputType, recognizedAssessmentType, assessmentPreviewReady, assessmentPreviewMessage } from '../services/assessmentInput'
 import { AGENTS, getAgent, isAgentAvailable, type AgentId } from '../agents'
 import { useToast } from '../composables/useToast'
@@ -252,7 +253,7 @@ const assessmentTypeText = ref('')
 const isUploadActive = ref(false)
 let uploadMotionTimer: number | undefined
 const validationErrors = reactive({ topic: '', files: '' })
-const timeRange = ref('all')
+const timeRange = ref('5')
 const outputPreference = ref<OutputPreference>('balanced')
 const assessmentType = ref<SelectedAssessmentType | 'auto'>('auto')
 const nineDraft = reactive(emptyNineDraft())
@@ -265,6 +266,7 @@ const pendingPreviews = ref(0)
 const isExtracting = computed(() => pendingPreviews.value > 0)
 const submitError = ref('')
 const visibleCases = computed(() => props.activeAgent === 'topic' ? TOPIC_CASES : props.activeAgent === 'assessment' ? ASSESSMENT_CASES : PUBLIC_CASES)
+const publicCasesReady = ref(false)
 const assessmentCaseGroups = computed(() => [
   { key: 'paper', label: '论文案例', items: ASSESSMENT_CASES.filter(sample => sample.category.startsWith('论文 ·')) },
   { key: 'project', label: '项目案例', items: ASSESSMENT_CASES.filter(sample => sample.category.startsWith('项目 ·')) },
@@ -361,7 +363,7 @@ function onAssessmentTypeInput(event?: Event) {
   const input = splitHomepageAssessmentInput(assessmentTypeText.value.trim())
   const type = input.type
   selectedAssessmentType.value = type || 'auto'
-  if (type) form.topic = homepageAssessmentGuide(form.topic, type).text
+  form.topic = type ? homepageAssessmentGuide(form.topic, type).text : homepageAssessmentBody(form.topic)
   invalidateAssessmentSource()
   assessmentNeedsSupplement.value = false
   validationErrors.topic = ''
@@ -830,23 +832,13 @@ function openQuotaHistory(status: string) {
   showRateLimitWarning.value = false
   emit('navigate', 'tasks')
 }
-function fillCase(sample: HomepageCase) {
-  if (isLoading.value) return
-  invalidateAssessmentSource()
-  const input = sample.agent === 'assessment' ? splitHomepageAssessmentInput(sample.input) : { text: sample.input, type: undefined }
-  form.topic = input.text
-  selectedAssessmentType.value = input.type || 'auto'
-  assessmentTypeText.value = input.type ? assessmentTypeLabels[input.type] : ''
-  selectedAssessmentScenarioId.value = sample.agent === 'assessment' ? sample.scenarioId || '' : ''
-  validationErrors.topic = ''
-  assessmentFeedback.value = ''
-  if (sample.agent === 'assessment') {
-    assessmentType.value = 'auto'
-    mergeNineDraft(nineDraft, {}, new Set())
-    assessmentNeedsSupplement.value = false
-  }
+function openCase(sample: HomepageCase) {
+  if (isLoading.value || !publicCasesReady.value) return
+  const page = sample.agent === 'topic' ? 'topic-task-detail' : 'task-detail'
+  const taskId = `public-case:${sample.id}`
   emit('select-agent', sample.agent)
-  trackEvent('content_assessment_home_sample_click', '填充案例', { sample_id: sample.id })
+  emit('navigate', page, taskId)
+  trackEvent('content_assessment_home_sample_click', '打开固定案例', { sample_id: sample.id })
 }
 
 function confirmRateLimitWarning() {
@@ -866,18 +858,12 @@ watch(() => props.activeAgent, (agent) => {
   assessmentReady.value = false
   assessmentFeedback.value = ''
   assessmentType.value = 'auto'
-  if (agent === 'assessment') {
-    const input = splitHomepageAssessmentInput(form.topic)
-    if (input.type) {
-      selectedAssessmentType.value = input.type
-      assessmentTypeText.value = assessmentTypeLabels[input.type]
-    }
-    form.topic = input.text
-  }
-  if (agent !== 'assessment') {
-    selectedAssessmentScenarioId.value = ''
-    assessmentNeedsSupplement.value = false
-  }
+  form.topic = ''
+  assessmentTypeText.value = ''
+  selectedAssessmentType.value = 'auto'
+  selectedAssessmentScenarioId.value = ''
+  assessmentNeedsSupplement.value = false
+  validationErrors.topic = ''
 })
 
 function handleSecKeydown(e: KeyboardEvent) {
@@ -913,6 +899,10 @@ onMounted(() => {
   window.addEventListener('authSuccess', handleAuthSuccess)
   window.addEventListener('authLogout', handleAuthLogout)
   authenticated.value = getAuthManager().isAuthenticated()
+  void getPublicCaseCatalog().then((catalog) => {
+    publicCasesReady.value = catalog.ready && PUBLIC_CASES.length === catalog.expected_count
+      && PUBLIC_CASES.every((item) => catalog.published_case_ids.includes(item.id))
+  }).catch(() => { publicCasesReady.value = false })
   if (showTaskReminders && authenticated.value) {
     void loadReminders()
     reminderTimer = window.setInterval(() => void loadReminders(), 30000)

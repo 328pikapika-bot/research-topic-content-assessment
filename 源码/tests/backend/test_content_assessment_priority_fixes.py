@@ -20,7 +20,16 @@ from app.agents.topic_selection.schemas import QueryBranch
 from app.repositories.content_assessment_task_history import task_statistics
 
 
-def test_current_homepage_assessment_materials_complete_real_eight_stage_flow(monkeypatch):
+def assert_query_groups_cover_each_point(state):
+    roles = {role for _group, role, _purpose in STANDARD_QUERY_GROUPS}
+    assert state.claims
+    for claim in state.claims:
+        plans = [plan for plan in state.query_plans if claim.claim_id in plan.claim_ids]
+        assert {plan.query_role for plan in plans} >= roles
+        assert all(plan.claim_ids == [claim.claim_id] for plan in plans)
+
+
+def test_current_homepage_assessment_materials_preserve_recovery_when_model_is_disabled(monkeypatch):
     monkeypatch.setattr(graph_module, "LITERATURE_SEARCH_API_URL", "")
     root = Path(__file__).resolve().parents[2]
     script = """
@@ -30,7 +39,8 @@ const ts = require('./frontend/web/node_modules/typescript')
 const source = fs.readFileSync('./frontend/web/src/services/homepageDraft.ts', 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
 const exports = {}
-vm.runInNewContext(compiled, { exports })
+const caseCatalog = JSON.parse(fs.readFileSync('./frontend/web/src/services/homepageCases.json', 'utf8'))
+vm.runInNewContext(compiled, { exports, require: name => name === './homepageCases.json' ? { default: caseCatalog } : require(name) })
 process.stdout.write(JSON.stringify(exports.ASSESSMENT_CASES.map(({ id, input }) => ({ id, input }))))
 """
     cases = json.loads(subprocess.run(
@@ -46,16 +56,20 @@ process.stdout.write(JSON.stringify(exports.ASSESSMENT_CASES.map(({ id, input })
             result.assessment_profile.confirmation_required = False
             result.current_stage = result.resume_from_stage
             result = asyncio.run(graph.run(result))
-        assert result.current_stage == "awaiting_confirmation", case["id"]
-        assert result.confirmation.reason in {"report_sources", "report_drafting"}, case["id"]
+        assert result.current_stage == "failed", case["id"]
+        assert not result.confirmation.needed, case["id"]
+        assert result.output_json['generation_recovery']['reason'] in {"claim_extraction", "report_sources", "report_drafting"}, case["id"]
         artifact_type = {"assessment-platform": "paper", "assessment-drug": "paper", "assessment-battery-v2": "project", "assessment-chip-v2": "project", "assessment-standard": "guideline", "assessment-cost": "guideline"}[case["id"]]
         assert result.report_preferences.resolved_artifact_type == artifact_type, case["id"]
         assert not result.nine_fields.missing_for_type(artifact_type), case["id"]
-        assert len(result.query_plans) == len(STANDARD_QUERY_GROUPS), case["id"]
-        assert any(item.source_url and item.doi for item in result.evidence_records), case["id"]
+        if result.query_plans:
+            assert_query_groups_cover_each_point(result)
+            assert any(item.source_url and item.doi for item in result.evidence_records), case["id"]
         assert result.report_snapshot is None, case["id"]
         assert not result.output_markdown, case["id"]
-        assert all(item.status == "completed" for item in result.stage_trace[:-1]), case["id"]
+        failed = next(index for index, item in enumerate(result.stage_trace) if item.status == 'failed')
+        assert all(item.status == "completed" for item in result.stage_trace[:failed]), case["id"]
+        assert result.resume_from_stage, case["id"]
 
 
 def test_evidence_claim_locator_uses_chunk_offset_and_rejects_mismatch():
@@ -180,7 +194,7 @@ def test_homepage_scenario_uses_verified_sources_and_balanced_conclusions(monkey
     graph._quality_gate(state)
 
     assert 3 <= len(state.claims) <= 6
-    assert len(state.query_plans) == len(STANDARD_QUERY_GROUPS)
+    assert_query_groups_cover_each_point(state)
     assert all(item.source_url.startswith("https://europepmc.org/articles/") and item.doi for item in state.evidence_records if item.source_type == "literature")
     assert {item.claim_id for item in state.claim_evidence_links} == {item.claim_id for item in state.claims}
     assert all(item.label in {"有直接支持", "存在相近先例", "方向性支持"} for item in state.novelty_decisions)
@@ -454,7 +468,7 @@ def test_all_homepage_scenarios_complete_the_calibrated_rule_flow(monkeypatch):
         graph._quality_gate(state)
 
         assert not state.nine_fields.missing_required(), scenario_id
-        assert len(state.query_plans) == len(STANDARD_QUERY_GROUPS), scenario_id
+        assert_query_groups_cover_each_point(state)
         assert {item.claim_id for item in state.claim_evidence_links} == {item.claim_id for item in state.claims}, scenario_id
         assert state.report_metrics.directional_claim_coverage == 1, scenario_id
         assert not state.quality_gate.blockers, scenario_id

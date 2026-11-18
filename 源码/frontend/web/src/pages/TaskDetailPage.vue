@@ -1,5 +1,5 @@
 <template>
-  <div class="task-detail-page" v-cloak>
+  <div class="task-detail-page detail-design" v-cloak>
     <section v-if="isLoading" class="modern-task-workspace">
       <div class="modern-card modern-loading-state"><span class="workspace-spinner"></span><div><h1>正在同步任务详情</h1><p>正在载入研究要点、相关文献和评估结果。</p></div></div>
     </section>
@@ -9,11 +9,9 @@
     <section v-else-if="taskDetail" class="modern-task-workspace">
       <div class="modern-task-workspace__heading">
         <div>
-          <span class="modern-eyebrow">NOVELTY ASSESSMENT · 创新性评估任务</span>
-          <h1>{{ taskDetailTitle }}</h1>
-          <p>先阅读评估结论，再按要点查看文献和依据。</p>
+          <span class="modern-eyebrow">{{ isPublicCase ? '创新性评估案例' : '创新性评估任务' }}</span>
+          <div class="detail-headline"><h1>{{ taskDetailTitle }}</h1><span class="workspace-status" :class="`workspace-status--${taskStatus}`"><img v-if="taskStatus === 'completed'" src="../../assets/design/icon-check-badge.webp" alt="" />{{ statusLabel }}</span></div>
         </div>
-        <span class="workspace-status" :class="`workspace-status--${taskStatus}`">{{ statusLabel }}</span>
       </div>
 
       <section v-if="canRetryGeneration" class="modern-card modern-generation-recovery" role="status">
@@ -21,8 +19,10 @@
         <button type="button" class="workspace-action workspace-action--primary" :disabled="retryLoading" @click="handleContinueGenerationAfterQuality">{{ retryLoading ? '正在恢复…' : '重试当前步骤' }}</button>
       </section>
 
-      <details class="modern-card modern-task-context modern-task-input">
-        <summary>查看完整材料与研究边界</summary>
+      <section class="detail-assessment-context">
+        <dl class="detail-meta"><div><dt>证据范围</dt><dd>{{ taskYearRange }}</dd></div><div><dt>文献</dt><dd>{{ evidenceItems.length }} 篇</dd></div></dl>
+        <details class="modern-card modern-task-context modern-task-input">
+        <summary>查看完整材料与研究边界<img src="../../assets/design/icon-chevron-boundary.webp" alt="" /></summary>
         <div class="modern-task-context__query">{{ taskDetail.raw_user_input || taskDetail.title }}</div>
         <p v-if="taskOverview.scopeBoundary">研究边界：{{ taskOverview.scopeBoundary }}</p>
         <div class="modern-meta-list"><span>文献年份：{{ taskYearRange }}</span><span>创建时间：{{ formatDateTime(taskDetail.created_at) }}</span></div>
@@ -36,22 +36,27 @@
           <h3>材料信息</h3>
           <div class="modern-nine-fields__grid"><article v-for="([key, value]) in reportNineFieldEntries.filter(([, value]) => value)" :key="key"><span>{{ nineFieldLabel(key) }}</span><p>{{ value }}</p></article></div>
         </section>
-      </details>
+        </details>
+      </section>
 
       <section class="modern-card modern-workflow-card">
-        <div class="modern-card__heading"><div><span class="modern-card__eyebrow">评估流程</span><h2>{{ userSteps.length }}个评估阶段</h2></div><span class="modern-card__hint">{{ completedUserStepCount }}/{{ userSteps.length }} 阶段完成 · {{ reportProgressPercentage }}%</span></div>
+        <h2 class="detail-visually-hidden">{{ userSteps.length }}个评估阶段</h2>
         <div class="modern-stage-strip" :aria-label="`${userSteps.length}阶段评估流程`">
           <button v-for="(step, index) in userSteps" :key="step.key" type="button"
                   :class="[{ active: selectedUserStep.key === step.key }, `is-${step.status}`]"
                   :aria-current="selectedUserStep.key === step.key ? 'step' : undefined"
                   @click="selectUserStep(step.key)">
-            <span><i><span v-if="step.status === 'completed'" class="material-icons-outlined">check</span><span v-else>{{ index + 1 }}</span></i><em>{{ stageStatusLabel(step.status) }}{{ stepDurationLabel(step) }}</em></span>
+            <span><i><img v-if="['completed', 'degraded'].includes(step.status)" src="../../assets/design/icon-check-step.webp" alt="" /><span v-else>{{ index + 1 }}</span></i><em>{{ stageStatusLabel(step.status) }}{{ stepDurationLabel(step) }}</em></span>
             <strong>{{ step.title }}</strong>
           </button>
         </div>
       </section>
       <StageRunNotice :notice="runNotice" />
-      <section class="modern-card modern-stage-description"><div class="assessment-stage-heading"><h2>{{ selectedUserStep.title }}</h2><span>{{ stageStatusLabel(selectedUserStep.status) }}{{ stepDurationLabel(selectedUserStep) }}</span></div><p>{{ selectedUserStep.description }}</p></section>
+      <section v-if="!isTaskInProgress" class="detail-banner">
+        <div><img v-if="taskStatus === 'completed'" class="detail-banner-icon" src="../../assets/design/icon-banner.webp" alt="" /><span v-else class="material-icons-outlined" aria-hidden="true">{{ taskStatus === 'cancelled' ? 'stop_circle' : taskStatus === 'failed' || taskStatus === 'time_out' ? 'error_outline' : 'info' }}</span><p><b>{{ reportDisplayState === 'published' ? '创新性评估已完成' : taskStatus === 'completed' ? '评估处理已结束' : statusLabel }}</b><small>{{ reportDisplayState === 'published' ? '完整报告已生成，可直接阅读或下载 Word、PDF。' : '已有材料与分析结果已保留，可通过上方步骤查看。' }}</small></p></div>
+        <dl><div><dt>总用时</dt><dd>{{ taskDurationDisplay }}</dd></div><div><dt>已完成阶段</dt><dd>{{ completedUserStepCount }}/{{ userSteps.length }}</dd></div><div><dt>总进度</dt><dd>{{ reportProgressPercentage }}%</dd></div></dl>
+      </section>
+      <section class="modern-card modern-stage-description" :class="{ 'stage-head--report': selectedUserStep.key === 'report' }"><div class="detail-stage-header"><div><div class="assessment-stage-heading"><h2>{{ selectedUserStep.key === 'report' && reportDisplayState === 'published' ? (assessmentReport?.title || `${taskDetailTitle}创新性评估报告`) : selectedUserStep.title }}</h2></div></div><div class="detail-stage-actions"><p v-if="selectedUserStep.key !== 'report'" class="stage-artifact"><b>阶段产物：</b>{{ selectedUserStep.artifact }} · {{ selectedUserStep.completion }}</p><ReportDownloadActions v-if="selectedUserStep.key === 'report' && reportDisplayState === 'published'" :docx-loading="isReportDownloading('docx')" :pdf-loading="isReportDownloading('pdf')" :md-loading="isReportDownloading('md')" @download="handleReportDownload" /></div></div></section>
 
       <section v-if="selectedUserStep.key === 'material'" class="modern-card modern-stage-output">
         <h3>材料概括</h3>
@@ -62,12 +67,12 @@
         <details v-if="materialRequirements.length"><summary>项目与配套指南要求</summary><article v-for="item in materialRequirements" :key="item.requirement_id"><p>{{ item.text }}</p><p>项目应答：{{ item.response_excerpt || '尚未找到可定位应答' }}</p><small>{{ item.comparison_note }}</small></article></details>
         <div class="assessment-point-list"><section v-for="claim in taskState?.claims || []" :key="claim.claim_id" class="assessment-point"><header><h4>{{ researchPointName(claim) }}</h4><span>{{ claimTypeLabel(claim.claim_type) }}</span></header><p><InlineCitations :text="claim.text" :sources="citationSources" /></p><ResultDisclosure v-if="hasUploadedClaimSource(claim, taskState?.uploaded_file_context?.files)" label="查看材料定位" collapse-label="收起材料定位"><p>{{ claimSourceLabel(claim) }}</p></ResultDisclosure></section></div>
       </section>
-      <section v-for="activeStage in activeStepStages" :key="activeStage.stage_key" class="modern-card modern-stage-output">
+      <section v-for="activeStage in activeStepStages.filter(stage => stage.stage_key !== 'report' || reportDisplayState !== 'published')" :key="activeStage.stage_key" class="modern-card modern-stage-output">
         <h3 v-if="activeStepStages.length > 1 && activeStage.stage_key !== 'landscape'">{{ stageArtifactTitle(activeStage.stage_key) }}</h3>
         <section class="modern-stage-artifacts">
           <div v-if="activeStage.stage_key === 'retrieval'" class="modern-evidence-groups">
-            <details v-if="taskState?.query_plans?.length"><summary>查看检索主题与检索式</summary><article v-for="(query, index) in taskState.query_plans" :key="index"><h4>{{ query.query_group || '相关主题' }}</h4><p>{{ query.query }}</p><p v-if="query.rationale">{{ query.rationale }}</p></article></details>
-            <section v-for="group in claimLiteratureGroups" :key="group.key" class="modern-artifact-section assessment-literature-group"><h4>{{ group.title }} <small>{{ group.items.length }} 篇文献</small></h4><div class="assessment-literature-rows"><LiteratureCard v-for="item in group.items.slice(0, 2)" :key="item.evidence_id" layout="row" :item="item" :chunks="taskState?.evidence_chunks || []" /></div><ResultDisclosure v-if="group.items.length > 2" :label="`展开其余文献（${group.items.length - 2} 篇）`" collapse-label="收起其余文献"><div class="assessment-literature-rows"><LiteratureCard v-for="item in group.items.slice(2)" :key="item.evidence_id" layout="row" :item="item" :chunks="taskState?.evidence_chunks || []" /></div></ResultDisclosure></section>
+            <details v-if="taskState?.query_plans?.length" class="assessment-query-plans"><summary>查看检索主题与检索式</summary><article v-for="(query, index) in taskState.query_plans" :key="index"><h4>{{ queryPlanPresentation(query, taskState?.claims || []).topic }}</h4><p>{{ queryPlanPresentation(query, taskState?.claims || []).summary }}</p><ul><li><b>检索重点：</b>{{ queryPlanPresentation(query, taskState?.claims || []).focus }}</li><li><b>筛选范围：</b>{{ queryPlanPresentation(query, taskState?.claims || []).scope }}</li><li><b>结果：</b>{{ queryPlanPresentation(query, taskState?.claims || []).result }}</li></ul><details v-if="query.query"><summary>查看原始检索式</summary><p class="assessment-query-raw">{{ query.query }}</p></details></article></details>
+            <section v-for="group in claimLiteratureGroups" :key="group.key" class="modern-artifact-section assessment-literature-group"><h4>{{ group.title }} <small>{{ group.items.length }} 篇文献</small></h4><div class="assessment-literature-rows"><LiteratureCard v-for="item in group.items.slice(0, 2)" :key="item.evidence_id" layout="row" :item="item" :citation-number="taskState?.report_snapshot?.citation_numbers?.[item.evidence_id]" :chunks="taskState?.evidence_chunks || []" /></div><ResultDisclosure v-if="group.items.length > 2" :label="`展开其余文献（${group.items.length - 2} 篇）`" collapse-label="收起其余文献"><div class="assessment-literature-rows"><LiteratureCard v-for="item in group.items.slice(2)" :key="item.evidence_id" layout="row" :item="item" :citation-number="taskState?.report_snapshot?.citation_numbers?.[item.evidence_id]" :chunks="taskState?.evidence_chunks || []" /></div></ResultDisclosure></section>
             <div v-if="!evidenceItems.length" class="modern-visual-empty">正在整理各要点的相关文献。</div>
           </div>
           <div v-else-if="activeStage.stage_key === 'comparison'" class="modern-comparison-groups">
@@ -83,7 +88,7 @@
                     <h5>相关研究与比较</h5>
                     <p v-for="(paragraph, index) in group.analysis.literature.flatMap(researchParagraphs)" :key="index" class="assessment-research-synthesis"><InlineCitations :text="paragraph" :sources="citationSources" /></p>
                     <section v-for="row in comparisonRows(group.key)" :key="row.source.evidence_id" class="assessment-comparison-source">
-                      <LiteratureReferences :items="[row.source]" show-abstract />
+                      <LiteratureReferences :items="[row.source]" />
                       <div v-for="section in comparisonSections(row.analysis)" :key="section.label" class="assessment-comparison-prose">
                         <h6>{{ section.label }}</h6><p v-for="(paragraph, index) in section.paragraphs" :key="index"><InlineCitations :text="paragraph" :sources="citationSources" /></p>
                       </div>
@@ -99,6 +104,7 @@
             <div v-if="!comparisonGroups.length" class="modern-visual-empty">正在整理逐项比较。</div>
           </div>
           <div v-else-if="activeStage.stage_key === 'assessment'" class="assessment-point-list">
+            <p v-if="!comparisonGroups.length" class="assessment-evaluation-pending">{{ isTaskInProgress ? '正在整理创新性评价，已完成的材料和文献可通过上方步骤查看。' : '该任务未保存可展示的逐项评价，请查看评估报告中的结论与依据。' }}</p>
             <section v-for="group in comparisonGroups" :key="group.key" class="assessment-point">
               <h4>{{ group.title }}</h4>
               <section v-for="item in pointEvaluations(group.key)" :key="item.label" class="assessment-dimension">
@@ -111,15 +117,7 @@
           </div>
           <div v-else-if="activeStage.stage_key === 'landscape'" class="modern-landscape-output"><h3>研究趋势</h3><div v-if="frozenTrendSeries.length" class="assessment-trend-figure"><LiteratureTrendChart :series="frozenTrendSeries" /><p class="assessment-figure-caption">按报告引用文献统计年份分布，反映本次检索样本。</p></div><div class="assessment-trend-analysis"><p v-for="(paragraph, index) in landscapeParagraphs" :key="index"><InlineCitations :text="paragraph" :sources="citationSources" /></p></div></div>
           <template v-else-if="activeStage.stage_key === 'report'">
-            <section v-if="reportDisplayState === 'published'" class="modern-summary-card">
-              <div class="modern-card__heading"><div><span class="modern-card__eyebrow">综合结果</span><h3>创新性评估结论</h3></div><ReportDownloadActions :docx-loading="isReportDownloading('docx')" :pdf-loading="isReportDownloading('pdf')" :md-loading="isReportDownloading('md')" @download="handleReportDownload" /></div>
-              <p class="modern-summary-card__text">{{ compactReportSummary }}</p>
-              <details v-if="(assessmentReport?.executiveSummary?.length || 0) > 260"><summary>阅读完整评估摘要</summary><p class="modern-summary-card__text">{{ assessmentReport?.executiveSummary }}</p></details>
-              <p>{{ assessmentReport?.pageCountVerified ? `报告实际 ${assessmentReport.actualPageCount} 页` : '报告已生成' }} · {{ assessmentReport?.claimCount || 0 }} 项研究要点。</p>
-
-
-            </section>
-            <section v-else class="modern-running-card" role="status"><div class="modern-running-card__icon"><span class="material-icons-outlined">autorenew</span></div><div><h3>{{ reportStatusTitle }}</h3><p>{{ reportStatusDescription }}</p></div></section>
+            <section class="modern-running-card" role="status"><div class="modern-running-card__icon"><span class="material-icons-outlined">autorenew</span></div><div><h3>{{ reportStatusTitle }}</h3><p>{{ reportStatusDescription }}</p></div></section>
 
 
           </template>
@@ -129,8 +127,9 @@
       </section>
 
       <section v-if="selectedUserStep.key === 'report' && reportDisplayState === 'published'" class="modern-report-reader modern-report-reader--pdf">
-        <ReportPdfPreview :task-id="taskDetail.task_id" :title="assessmentReport?.title || taskDetailTitle" :version="assessmentReport?.version" :downloading="isReportDownloading('pdf')" @download="handleReportDownload('pdf')" @loaded="loadTask({ showLoading: false })" />
+        <ReportPdfPreview compact :task-id="taskDetail.task_id" :title="assessmentReport?.title || taskDetailTitle" :version="assessmentReport?.version" :load-pdf="isPublicCase ? fetchContentAssessmentReportPdf : undefined" :downloading="isReportDownloading('pdf')" @download="handleReportDownload('pdf')" @loaded="loadTask({ showLoading: false })" />
       </section>
+      <details v-if="selectedUserStep.key === 'report' && reportDisplayState === 'published'" class="modern-card detail-report-summary"><summary>查看评估结论摘要</summary><p class="modern-summary-card__text">{{ assessmentReport?.executiveSummary || compactReportSummary }}</p><p>{{ assessmentReport?.pageCountVerified ? `报告实际 ${assessmentReport.actualPageCount} 页` : '报告已生成' }} · {{ assessmentReport?.claimCount || 0 }} 项研究要点。</p></details>
     </section>
     <section v-else class="modern-task-workspace"><div class="modern-card modern-error-state"><span class="material-icons-outlined" aria-hidden="true">folder_off</span><div><h1>任务不存在</h1><p>该任务可能已被删除或当前账号没有访问权限。</p><button type="button" class="workspace-action" @click="goBack">返回上一层</button></div></div></section>
 
@@ -199,6 +198,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { uploadPresentation, associatedLiteratureCount } from '../services/uploadPresentation'
 import {
   downloadContentAssessmentReport,
+  fetchContentAssessmentReportPdf,
   getContentAssessmentTask,
   resumeContentAssessment,
   stopContentAssessmentTask,
@@ -226,6 +226,7 @@ import LiteratureReferences from '../components/LiteratureReferences.vue'
 import InlineCitations from '../components/InlineCitations.vue'
 import ResultDisclosure from '../components/ResultDisclosure.vue'
 import { analysisParagraphs, assessmentCitationSources, assessmentTaskTitle, hasUploadedClaimSource, researchEvaluations, retrievalLiteratureForPoint, relatedResearchAnalysis, comparisonLiteratureLinks } from '../services/assessmentPagePresentation'
+import { queryPlanPresentation } from '../services/queryPlanPresentation'
 import LiteratureTrendChart from '../components/LiteratureTrendChart.vue'
 import ClaimEvidenceGraph from '../components/ClaimEvidenceGraph.vue'
 import { assessmentTrendSeries } from '../services/resultSnapshot'
@@ -317,6 +318,7 @@ let durationTimer: number | undefined
 let pendingAuthenticatedAction: (() => void) | null = null
 
 const isSampleMode = computed(() => props.taskId?.startsWith('sample_'))
+const isPublicCase = computed(() => props.taskId?.startsWith('public-case:'))
 const fromTaskList = computed(() => Boolean(props.fromTaskList))
 const taskStatus = computed(() => taskDetail.value?.status || '')
 const taskStatusClass = computed(() => {
@@ -332,7 +334,7 @@ const taskStatusClass = computed(() => {
   }
 })
 const statusLabel = computed(() => {
-  const m: Record<string, string> = { completed: '已完成', running: '进行中', queued: '排队中', failed: '失败', time_out: '已超时', cancelled: '已取消', awaiting_clarification: '待澄清', awaiting_quality_continue: '待继续生成' }
+  const m: Record<string, string> = { completed: '已完成', running: '进行中', queued: '等待处理', failed: '失败', time_out: '已超时', cancelled: '已取消', awaiting_clarification: '待澄清', awaiting_quality_continue: '待继续生成' }
   return m[taskStatus.value] || taskStatus.value || '未知'
 })
 
@@ -458,7 +460,6 @@ function userFacingTraceText(value: string) {
     .replace(/\bE-L-\d{3,}\b/g, (id) => evidenceUserLabelById(id))
 }
 function evidenceTitle(evidenceId: string) { return evidenceItems.value.find((item) => item.evidence_id === evidenceId)?.title || '来源文献' }
-function formatAuthors(authors?: string[]) { return authors?.length ? authors.slice(0, 4).join('、') : '作者未提供' }
 function evidenceLevelLabel(value?: string) { return ({ A: '全文可定位', B: '摘要级依据', C: '线索记录' } as Record<string, string>)[value || ''] || '证据级别待确认' }
 function claimLabelsForEvidence(item: EvidenceItem) { return (item.claim_ids || []).map(claimUserLabel).filter((value, index, values) => values.indexOf(value) === index).slice(0, 4) }
 const evidenceGroups = computed(() => {
@@ -580,7 +581,7 @@ function sanitizeReportDisplayText(value: unknown) {
     .join('')
     .trim()
 }
-const rawStageTraces = computed<StageTraceItem[]>(() => taskState.value?.stage_trace?.length ? taskState.value.stage_trace : taskDetail.value?.stage_trace || [])
+const rawStageTraces = computed<StageTraceItem[]>(() => taskState.value?.stage_trace?.length ? taskState.value.stage_trace : taskDetail.value?.stage_trace?.length ? taskDetail.value.stage_trace : taskState.value?.report_snapshot?.stage_trace || [])
 const stageTraces = computed<StageTraceItem[]>(() => {
   const traceByKey = new Map(rawStageTraces.value.map((stage) => [stage.stage_key, stage]))
   const ordered = CONTENT_ASSESSMENT_STAGES
@@ -604,8 +605,11 @@ function selectUserStep(key: string) {
   const step = userSteps.value.find(item => item.key === key)
   if (!step || (step.status === 'pending' && isTaskInProgress.value)) return
   const order = step.key === 'report' ? [...step.stages].reverse() : step.stages
-  const target = order.map(stage => stageTraces.value.find(item => item.stage_key === stage)).find((stage): stage is StageTraceItem => Boolean(stage && canSelectStage(stage)))
-  if (target) selectModernStage(target.stage_key)
+  const target = order.map(stage => stageTraces.value.find(item => item.stage_key === stage)).find((stage): stage is StageTraceItem => Boolean(stage && (canSelectStage(stage) || !isTaskInProgress.value)))
+  if (target) {
+    selectedStageKey.value = target.stage_key
+    expandedStages.value = new Set([...expandedStages.value, target.stage_key])
+  }
 }
 
 type ReportDisplayState =
@@ -642,7 +646,7 @@ const reportStatusTitle = computed(() => {
   const labels: Record<ReportDisplayState, string> = {
     published: '报告已生成',
     running: '报告正在生成中',
-    queued: '报告正在排队',
+    queued: '报告等待处理',
     awaiting_clarification: '等待确认评估边界',
     awaiting_quality_continue: '报告待继续生成',
     failed: '报告生成未完成',
@@ -1487,7 +1491,7 @@ function reportEvidenceFor(claim: ContentAssessmentReport['claims'][number]) {
 async function handleReportDownload(format: 'docx' | 'pdf' | 'md' | 'zip' = 'docx') {
   const taskId = taskDetail.value?.task_id || props.taskId
   if (!taskId || isReportDownloading(format)) return
-  if (!(await getAuthManager().checkAuth())) {
+  if (!isPublicCase.value && !(await getAuthManager().checkAuth())) {
     pendingAuthenticatedAction = () => { void handleReportDownload(format) }
     getAuthManager().showLoginModal()
     loadError.value = '请先登录平台账号后再下载报告'

@@ -68,6 +68,21 @@ def test_opportunity_and_theme_charts_keep_long_labels_and_dynamic_counts():
     assert Image.open(io.BytesIO(long)).height > Image.open(io.BytesIO(short)).height
 
 
+def test_opportunity_chart_recovers_saved_core_from_partial_participants(monkeypatch):
+    from app.services import research_graph_rendering as rendering
+    drawn = []
+    original = rendering._card_full_title
+    def capture(draw, box, title, *args, **kwargs):
+        drawn.append(title)
+        return original(draw, box, title, *args, **kwargs)
+    monkeypatch.setattr(rendering, '_card_full_title', capture)
+    row = {'crosslink_id': 'legacy', 'core': '城市环境学', 'opportunity': '跨城市模型迁移',
+           'participating_disciplines': [{'discipline': '遥感科学', 'role': 'expansion'}]}
+    rendering.topic_opportunity_parts([row])
+    assert '城市环境学' in drawn and '遥感科学' in drawn
+    assert len(row['participating_disciplines']) == 1
+
+
 def test_trend_chart_keeps_all_subdirection_series_in_the_export_image():
     from PIL import Image
 
@@ -97,4 +112,8 @@ def test_report_graph_uses_chapter_five_sources_and_frozen_snapshot():
     docx, _ = build_content_assessment_docx(state)
     with zipfile.ZipFile(io.BytesIO(docx)) as archive:
         assert any(name.startswith("word/media/image") for name in archive.namelist())
-    assert "![图 5-1 要点与比对证据对应图](data:image/png;base64," in markdown(state)
+    text = markdown(state)
+    assert "图 5-1 要点与比对证据对应图" in text
+    assert "data:image" not in text
+    assert "Synthetic liver chip perfusion" in text
+    assert "data:image/png;base64," in markdown(state, include_images=True)

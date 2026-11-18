@@ -11,7 +11,27 @@ from app.agents.content_assessment.scholarly_report import WRITING_RULES, reader
 from app.agents.topic_selection.presentation import candidate_reader_report_fields, opportunity_reader_type
 
 
-SOURCE_REVIEW_VERSION = 'topic-source-review-v6'
+SOURCE_REVIEW_VERSION = 'topic-source-review-v7'
+
+# Short alphanumeric scientific terms (G1, G2/M, C3, T80) are not internal
+# identifiers. Only unambiguous IDs or explicitly labelled workflow codes
+# belong to the internal-code check.
+INTERNAL_CODE_RE = re.compile(
+    r'(?<![A-Za-z0-9_-])(?:E-[A-Za-z0-9_-]+|M-INPUT|CAND-\d+)(?![A-Za-z0-9_-])'
+    r'|(?:关联主题|研究主题|主题|研究空白|空白|候选题|候选)\s*[TCG]\d+(?![A-Za-z0-9_/-])')
+
+
+def compact_repair_history(state) -> None:
+    """Keep the last repair per paragraph; rejected revisions cannot grow forever."""
+    artifacts = state.stage_artifacts.get('report_publish', {})
+    repairs = artifacts.get('paragraph_repairs', [])
+    if len(repairs) <= 100:
+        return
+    latest = {}
+    for repair in repairs:
+        if isinstance(repair, dict):
+            latest[(repair.get('key'), repair.get('index'), repair.get('field'))] = repair
+    artifacts['paragraph_repairs'] = list(latest.values())[-100:]
 
 
 def threshold_relations(text):
@@ -212,7 +232,7 @@ def text_issues(text, ids, packet, *, proposal=False):
     if not ids and (not proposal or not re.search(r'拟|建议|可通过|可采用|应当|可在|进一步研究|验证设计', text)
                     or numeric_values(text) or re.search(r'已经|结果表明|实验表明|显著提升|显著下降', text)):
         reasons.append('事实需要对应来源；无引用方案须明确为建议且不能含实测结果或数值')
-    if re.search(r'(?<![A-Za-z0-9_-])(?:E-[A-Za-z0-9_-]+|M-INPUT|T\d+|G\d+|CAND-\d+|C\d+)(?![A-Za-z0-9_-])', text):
+    if INTERNAL_CODE_RE.search(text):
         reasons.append('正文包含内部编号，引用仅放在evidence_ids')
     # Explicit user conditions describe a proposed study, never measured
     # literature results. Semantic review receives that distinction below.
@@ -293,7 +313,7 @@ def invalid_paragraphs(value, packet):
                 continue
             for field in candidate_fields(row) if key == 'candidates' else ('text',):
                 ids, text = field_refs(row, field), row.get(field, '')
-                proposal = key in ('opportunities', 'recommendations') or (key == 'candidates' and field in ('title', 'design', 'conditions'))
+                proposal = key in ('opportunities', 'recommendations') or key == 'candidates'
                 reasons = text_issues(text, ids, packet, proposal=proposal)
                 if reasons:
                     targets.append({'key': key, 'index': index, 'field': field, 'text': text,
@@ -369,6 +389,7 @@ async def repair_paragraphs(agent, state, callback, packet, draft, attempted=Non
         artifacts.setdefault('paragraph_repairs', []).append(
             {'key':key, 'index':index, 'field':field, 'result':response,
              'basis_status': basis_status})
+        compact_repair_history(state)
         # Fact plans are auxiliary audit material. The repaired prose remains
         # unpublished until full semantic source review and strict validation;
         # a malformed quote must not discard an otherwise reviewable draft.
@@ -573,11 +594,97 @@ def prose(value, state):
         text = text.replace(eid, f'[{number}]')
     # Remove internal identifiers even when a model writes a range such as
     # C1-C3; the report already presents candidate names and citation numbers.
-    text = re.sub(r'(?<![A-Za-z0-9])(?:E-[A-Za-z0-9_-]+|M-INPUT|T\d+|G\d+|CAND-\d+)(?![A-Za-z0-9])', '', text)
+    text = INTERNAL_CODE_RE.sub('', text)
     # Audit assessments do not explain a research proposal to its reader.
     text = ''.join(p for p in re.split(r'(?<=[。！？；])|\n+', text)
                    if not re.search(r'未直接支持|尚未证明|仅提供主题背景|缺少|缺失|未提供额外资源|适配性基于主题|当前仅有|关联主题|结论强度|部分支持', p))
     return reader_prose(text).strip('； ，')
+
+
+def compact_citations(state):
+    """Freeze dense bibliography numbers from the citations actually displayed."""
+    from app.common.retrieval.links import bibliography_text, evidence_url, doi_url
+    old = dict(state.report_plan.citation_map)
+    by_number = {number: eid for eid, number in old.items()}
+    evidence = {item.evidence_id: item for item in state.evidence_pool}
+    numbers, identities, ordered = {}, {}, []
+
+    def strings(value):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, list):
+            for item in value:
+                yield from strings(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key not in {'content', 'source_ids', 'evidence_ids'}:
+                    yield from strings(item)
+
+    tables = {table.get('key'): table for table in state.report_plan.table_specs}
+    specs = {spec.get('key'): spec for spec in state.report_plan.section_specs}
+    visible = []
+    for section in state.report_plan.sections:
+        spec = specs.get(section.get('key'), {})
+        rendered = set()
+        blocks = section.get('blocks') or spec.get('blocks') or []
+        if not blocks:
+            visible.append(section.get('content', ''))
+        for block in blocks:
+            if block.get('kind') == 'reference_list':
+                continue
+            if block.get('kind') == 'table_ref':
+                rendered.add(block.get('key'))
+                visible.append(tables.get(block.get('key'), {}).get('rows', []))
+            else:
+                visible.append(block)
+        for key in spec.get('table_keys', []):
+            if key not in rendered:
+                visible.append(tables.get(key, {}).get('rows', []))
+    for text in strings(visible):
+        for marker in re.findall(r'\[(\d+)\]', text):
+            eid = by_number.get(int(marker))
+            if eid not in evidence or eid in numbers:
+                continue
+            item = evidence[eid]
+            identity = doi_url(item.doi).lower() or str(item.paper_id or '') or evidence_url(item) or (bibliography_text(item.title).casefold(), item.year)
+            if identity not in identities:
+                identities[identity] = len(ordered) + 1
+                ordered.append(eid)
+            numbers[eid] = identities[identity]
+    # Aliases share the canonical number, including references rendered on the page.
+    for eid, item in evidence.items():
+        identity = doi_url(item.doi).lower() or str(item.paper_id or '') or evidence_url(item) or (bibliography_text(item.title).casefold(), item.year)
+        if identity in identities:
+            numbers[eid] = identities[identity]
+    remap = {number: numbers[eid] for eid, number in old.items() if eid in numbers}
+
+    def rewrite(value):
+        if isinstance(value, str):
+            value = re.sub(r'\[(\d+)\]', lambda m: f'[{remap[int(m[1])]}]' if int(m[1]) in remap else m[0], value)
+            return re.sub(r'(\[\d+\])\s+(?=\[\d+\])', r'\1', value)
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if isinstance(value, dict):
+            return {key: rewrite(item) for key, item in value.items()}
+        return value
+
+    state.report_plan.sections = rewrite(state.report_plan.sections)
+    state.report_plan.table_specs = rewrite(state.report_plan.table_specs)
+    state.report_plan.section_specs = rewrite(state.report_plan.section_specs)
+    state.report_plan.executive_summary = rewrite(state.report_plan.executive_summary)
+    state.report_plan.citation_map = numbers
+    state.report_plan.citation_links = {eid: evidence_url(evidence[eid]) for eid in numbers}
+    items = []
+    for eid in ordered:
+        item = evidence[eid]
+        items.append({'number': numbers[eid], 'evidence_id': eid, 'title': bibliography_text(item.title),
+                      'authors': '、'.join(bibliography_text(a) for a in item.authors), 'year': item.year,
+                      'venue': bibliography_text(item.venue), 'doi': item.doi, 'paper_id': item.paper_id,
+                      'url': evidence_url(item)})
+    section = next(section for section in state.report_plan.sections if section['key'] == 'references')
+    section['blocks'] = [{'kind': 'reference_list', 'items': items}, *[block for block in section['blocks'] if block.get('kind') != 'reference_list']]
+    section['content'] = '\n'.join(f"[{item['number']}] {item['title']}" for item in items)
+    return set(numbers)
 
 
 async def compose(agent, state, callback):
@@ -662,7 +769,7 @@ async def compose(agent, state, callback):
     def refs(ids):
         ids = [eid for eid in ids or [] if eid in allowed]
         used.update(ids)
-        return ' '.join(f'[{state.report_plan.citation_map[eid]}]' for eid in dict.fromkeys(ids))
+        return ''.join(f'[{state.report_plan.citation_map[eid]}]' for eid in dict.fromkeys(ids))
 
     def paragraphs(key):
         rows = draft.get(key, []) if isinstance(draft, dict) else []
@@ -715,10 +822,7 @@ async def compose(agent, state, callback):
         reader_fields = candidate_reader_report_fields(candidate, state.report_plan.citation_map)
         if reader_fields:
             links = candidate.evidence_links or []
-            associated_ids = (
-                {link.evidence_id for link in links if link.relation in {"supports", "contradicts"}}
-                if links else set(candidate.evidence_ids)
-            )
+            associated_ids = set(candidate.evidence_ids) | {link.evidence_id for link in links}
             for section in (candidate.reader_content or {}).values():
                 if isinstance(section, dict):
                     used.update(eid for eid in section.get('evidence_ids', []) if eid in allowed and eid in associated_ids)
@@ -728,7 +832,7 @@ async def compose(agent, state, callback):
             candidate_blocks.append({'kind': 'candidate_detail', 'candidate_id': candidate.candidate_id,
                 'index': index, 'title': candidate.display_title or candidate.title,
                 'show_status': False, 'fields': reader_fields})
-            priority_rows.append({'优先级': index, '候选题': candidate.display_title or candidate.title})
+            priority_rows.append({'优先级': index, '候选题': candidate.display_title or candidate.title, '方向类型': '推荐方向' if candidate.direction_type == 'recommended' else '探索方向'})
             continue
         title = str(row.get('title') or '').strip()
         if title and len(title) <= 65 and reader_prose(title) == title and tokens(title) & tokens(candidate.title + candidate.research_question):
@@ -740,19 +844,21 @@ async def compose(agent, state, callback):
         design += ' ' + refs(field_refs(row, 'design'))
         conditions += ' ' + refs(field_refs(row, 'conditions'))
         references = ''
-        candidate_blocks.append({'kind': 'candidate_detail', 'index': index, 'title': candidate.display_title or candidate.title,
+        candidate_blocks.append({'kind': 'candidate_detail', 'candidate_id': candidate.candidate_id, 'index': index, 'title': candidate.display_title or candidate.title,
             'show_status': False, 'fields': [{'label': '核心理由', 'value': reason}, {'label': '研究设计', 'value': design},
                                            *([{'label': '代表文献', 'value': references}] if references else []),
                                            {'label': '适用条件与验证建议', 'value': conditions}]})
         # The overview helps select a topic; its reasoning is presented once
         # in the details immediately below, rather than in oversized cells.
-        priority_rows.append({'优先级': index, '候选题': candidate.display_title or candidate.title})
+        priority_rows.append({'优先级': index, '候选题': candidate.display_title or candidate.title, '方向类型': '推荐方向' if candidate.direction_type == 'recommended' else '探索方向'})
     sections = state.report_plan.sections
     for section in sections:
         key = section['key']
         figures = [b for b in section.get('blocks', []) if b.get('kind') == 'figure_ref']
         if key == 'abstract':
             section['blocks'] = paragraphs('summary') or [{'kind': 'lead', 'text': state.report_plan.executive_summary}]
+            recommended = sum(c.direction_type == 'recommended' for c in state.candidates[:5])
+            section['blocks'].append({'kind': 'paragraph', 'text': f'围绕上述研究主题，形成 {recommended} 个推荐方向和 {len(state.candidates[:5]) - recommended} 个探索方向；方向分组表示研究推进顺序，具体证据依据见各方向分析。'})
             state.report_plan.executive_summary = section['blocks'][0]['text']
         elif key == 'candidate_evaluation':
             section['blocks'] = [{'kind': 'table_ref', 'key': 'candidate_priority'}, *candidate_blocks]
@@ -785,8 +891,8 @@ async def compose(agent, state, callback):
     for table in state.report_plan.table_specs:
         if table['key'] == 'candidate_priority':
             table['rows'] = priority_rows
-            table['columns'] = ['优先级', '候选题']
-            table['column_widths'] = [0.8, 6.0]
+            table['columns'] = ['优先级', '候选题', '方向类型']
+            table['column_widths'] = [0.6, 4.9, 1.3]
         elif table['key'] == 'cross_matrix':
             used.update(eid for link in state.crosslinks for eid in link.support_evidence_ids[:2])
     # Include every actually cited source, including the graph's opportunity data.
@@ -799,5 +905,6 @@ async def compose(agent, state, callback):
              for e in state.evidence_pool if e.evidence_id in used]
     reference_section['blocks'] = [{'kind': 'reference_list', 'items': items}, {'kind': 'table_ref', 'key': 'cross_matrix'}]
     reference_section['content'] = '\n'.join(f"[{r['number']}] {r['title']} ({r['year'] or ''}) {r['url']}" for r in items)
+    used = compact_citations(state)
     state.stage_artifacts['report_publish']['reader_source_review'] = {'checked': bool(draft), 'source_ids': sorted(used)}
     state.report_plan.limitations = ['研究建议依据本次检索文献提出，方法迁移效果需在相应研究对象与评价条件下检验。']

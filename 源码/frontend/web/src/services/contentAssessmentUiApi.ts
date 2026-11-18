@@ -23,6 +23,7 @@ import {
 } from './contentAssessmentApi'
 import { assessmentResultState } from './resultSnapshot'
 import { buildClaimEvidencePresentation, type ClaimEvidencePresentation } from './assessmentEvidencePresentation'
+import { readApiError } from './apiErrors'
 
 export type UploadedFileRef = RawUploadedFileRef
 
@@ -279,7 +280,20 @@ export async function listContentAssessmentTasks(params: { status?: string; sear
 }
 
 export async function getContentAssessmentTask(taskId: string): Promise<ContentAssessmentTaskDetail> {
+  if (taskId.startsWith('public-case:')) {
+    const caseId = taskId.slice('public-case:'.length)
+    const response = await fetch(`${API_BASE}/v1/public-cases/${encodeURIComponent(caseId)}`)
+    if (!response.ok) throw await readApiError(response)
+    const body = await response.json()
+    return mapTaskDetail(body.data)
+  }
   return mapTaskDetail(await getRawTask(taskId))
+}
+
+export async function getPublicCaseCatalog(): Promise<{ ready: boolean; published_case_ids: string[]; expected_count: number; version: string }> {
+  const response = await fetch(`${API_BASE}/v1/public-cases`)
+  if (!response.ok) throw await readApiError(response)
+  return response.json()
 }
 
 export async function submitContentAssessmentConfirmation(taskId: string, selectedOption: string, userNote = '', preferences: { removed_file_ids?: string[]; supplemental_input?: string; nine_fields?: Record<string, string | string[]>; confirmed_claims?: Array<{ claim_id: string; text: string; source_document_id?: string; source_kind?: 'material' | 'evidence'; source_evidence_id?: string; source_span: string }>; report_mode?: ReportMode; artifact_type?: ArtifactType; scope_focus?: 'focused' | 'comprehensive'; scope_summary?: string; section_overrides?: Record<string, { enabled?: boolean; order?: number | null; depth?: 'compact' | 'expanded' | 'full' }> } = {}): Promise<ContentAssessmentRunResponse> {
@@ -315,12 +329,32 @@ export function deleteContentAssessmentTask(taskId: string) {
 }
 
 export function downloadContentAssessmentReport(taskId: string, format: 'docx' | 'pdf' | 'md' | 'zip' = 'docx') {
+  if (taskId.startsWith('public-case:')) return downloadPublicCaseReport(taskId.slice('public-case:'.length), format === 'zip' ? 'docx' : format)
   return downloadRawReport(taskId, format)
 }
 
 export async function fetchContentAssessmentReportPdf(taskId: string, signal?: AbortSignal): Promise<Blob> {
+  if (taskId.startsWith('public-case:')) {
+    const response = await fetch(`${API_BASE}/v1/public-cases/${encodeURIComponent(taskId.slice('public-case:'.length))}/export?format=pdf`, { signal, cache: 'no-store' })
+    if (!response.ok) throw await readApiError(response)
+    return response.blob()
+  }
   const result = await fetchRawReportBlob(taskId, 'pdf', 'inline', signal)
   return result.blob
+}
+
+async function downloadPublicCaseReport(caseId: string, format: 'docx' | 'pdf' | 'md') {
+  const response = await fetch(`${API_BASE}/v1/public-cases/${encodeURIComponent(caseId)}/export?format=${format}`, { cache: 'no-store' })
+  if (!response.ok) throw await readApiError(response)
+  const blob = await response.blob()
+  const filename = response.headers.get('content-disposition')?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
+  const target = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = target
+  link.download = filename ? decodeURIComponent(filename) : `${caseId}.${format}`
+  document.body.appendChild(link)
+  link.click()
+  window.setTimeout(() => { link.remove(); URL.revokeObjectURL(target) }, 1000)
 }
 
 export function subscribeToTaskStream(

@@ -144,10 +144,12 @@ def test_scoped_history_cleanup_is_idempotent_and_preserves_unended_tasks():
                 for status in ("completed", "failed", "cancelled", "superseded", "running", "queued", "awaiting_confirmation", "awaiting_review", "awaiting_correction", "unknown"):
                     await repo.create({"task_id": f"{scope}-{kind}-{status}", "user_scope": scope, "task_type": kind, "status": status})
         before = await repo.delete_history("owner", dry_run=True)
-        assert before["eligible_count"] == 8 and before["skipped_count"] == 12
+        assert before["eligible_count"] == 10 and before["skipped_count"] == 10
         assert before["deleted_count"] == 0
         result = await repo.delete_history("owner")
-        assert result["deleted_count"] == 8
+        assert result["deleted_count"] == 10
+        assert await repo.get("owner-智能选题-awaiting_confirmation", "owner") is None
+        assert await repo.get("owner-智能选题-awaiting_review", "owner") is not None
         assert await repo.get("owner-智能选题-completed", "owner") is None
         assert await repo.get("other-智能选题-completed", "other") is not None
         assert (await repo.delete_history("owner"))["deleted_count"] == 0

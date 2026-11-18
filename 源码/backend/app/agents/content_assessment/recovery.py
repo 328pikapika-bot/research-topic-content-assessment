@@ -41,9 +41,10 @@ def retry_stage(state):
     if stage == "retrieval" and reason == "report_sources" and state.claims:
         from .scholarly_report import selected_sources
         from .point_evaluation import reviewed_evaluations
+        from .source_recovery import source_limited
         # A retry after a source-selection correction can reuse the saved
         # search, comparisons and accepted evaluations. Only search again
         # when a point still has no usable source.
-        if all(selected_sources(state, claim) for claim in state.claims):
-            stage = "assessment" if any(not reviewed_evaluations(state, claim) for claim in state.claims) else "report"
+        if all(selected_sources(state, claim) or source_limited(state, claim) for claim in state.claims):
+            stage = "assessment" if any(not reviewed_evaluations(state, claim) and not source_limited(state, claim) for claim in state.claims) else "report"
     return stage if stage in RECOVERY_STAGES else None

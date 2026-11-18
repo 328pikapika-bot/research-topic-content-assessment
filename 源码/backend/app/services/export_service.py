@@ -21,7 +21,7 @@ from app.core.config import BEIJING_TZ
 from app.services.content_assessment_report import build_content_assessment_docx
 
 # Presentation-only revision: invalidate exports without rewriting frozen reports.
-ASSESSMENT_EXPORT_LAYOUT_VERSION = "scholarly-report-v7-caption-and-chart-layout-v1"
+ASSESSMENT_EXPORT_LAYOUT_VERSION = "scholarly-report-v8-readable-markdown-references-v5"
 
 def _now_str() -> str:
     return datetime.now(BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
@@ -72,8 +72,20 @@ def build_markdown(state: ContentAssessmentState) -> tuple[str, str]:
     return "\n".join(lines).rstrip() + "\n", f"{_safe_filename(title)}.md"
 
 
+def build_markdown_bundle(state: ContentAssessmentState) -> tuple[bytes, str]:
+    ensure_snapshot(state)
+    prepare_exports(state)
+    from app.agents.content_assessment.report_composition import markdown as render_markdown
+    from app.services.report_markdown import package_markdown
+    return package_markdown(render_markdown(state, include_images=True), _display_title(state))
+
+
 def build_html(state: ContentAssessmentState) -> tuple[str, str]:
-    markdown, filename = build_markdown(state)
+    ensure_snapshot(state)
+    prepare_exports(state)
+    from app.agents.content_assessment.report_composition import markdown as render_markdown
+    markdown = render_markdown(state, include_images=True)
+    filename = f"{_safe_filename(_display_title(state))}.md"
     from app.common.retrieval.links import citation_urls
     links = citation_urls(state.report_snapshot.audit_data.get("evidence_records", []), state.report_snapshot.citation_numbers)
     parts: list[str] = []
@@ -83,6 +95,9 @@ def build_html(state: ContentAssessmentState) -> tuple[str, str]:
     pending_table: list[str] = []
 
     def inline(value: str) -> str:
+        value = re.sub(r'<a class="citation" href="#ref-(\d+)">\[\1\]</a>', r"[\1]", value)
+        value = re.sub(r'<sup class="citation"><a href="#ref-(\d+)">\[\1\]</a></sup>', r"[\1]", value)
+        value = re.sub(r"\[(\d+)\]\(#ref-\1\)", r"[\1]", value)
         segments: list[str] = []
         cursor = 0
         pattern = re.compile(r"\[((?:\\.|[^\]\\])+)\]\(<(https?://[^>]+)>\)|https?://[^\s；;，,。)）]+|\[(\d+)\]")
@@ -93,10 +108,11 @@ def build_html(state: ContentAssessmentState) -> tuple[str, str]:
                 segments.append(f'<a href="{html.escape(match.group(2), quote=True)}" target="_blank" rel="noopener">{html.escape(label)}</a>')
             elif match.group(3):
                 number = match.group(3)
-                if links.get(number):
-                    segments.append(f'<a class="citation" href="{html.escape(links[number], quote=True)}" target="_blank" rel="noopener">[{number}]</a>')
+                if int(number) in state.report_snapshot.citation_numbers.values():
+                    marker = f'<a class="citation" href="#ref-{number}">[{number}]</a>'
                 else:
-                    segments.append(f'<span class="citation">[{number}]</span>')
+                    marker = f'<span class="citation">[{number}]</span>'
+                segments.append(marker)
             else:
                 url = match.group(0)
                 segments.append(f'<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener">{html.escape(url)}</a>')
@@ -130,6 +146,8 @@ def build_html(state: ContentAssessmentState) -> tuple[str, str]:
         image_match = re.fullmatch(r"!\[([^\]]+)\]\((data:image/png;base64,[A-Za-z0-9+/=]+)\)", line)
         if image_match:
             parts.append(f'<figure><img src="{image_match[2]}" alt="{html.escape(image_match[1], quote=True)}"></figure>')
+        elif reference_anchor := re.fullmatch(r'<a id="ref-(\d+)"></a>', line):
+            parts.append(f'<span id="ref-{reference_anchor.group(1)}"></span>')
         elif line.startswith("> "):
             label = line[2:]
             kind = "execution" if label.startswith("【公开执行摘要】") else "risk" if label.startswith("【风险】") else "result"
@@ -165,7 +183,7 @@ def build_html(state: ContentAssessmentState) -> tuple[str, str]:
                 continue
             escaped = inline(line)
             reference_match = re.match(r"^\[(\d+)\]\s+", line) if appendix_section else None
-            anchor_attr = f' id="evidence-{reference_match.group(1)}"' if reference_match else ""
+            anchor_attr = f' id="ref-{reference_match.group(1)}"' if reference_match else ""
             classes = ["report-paragraph"]
             if appendix_section:
                 classes.append("report-appendix")

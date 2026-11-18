@@ -34,8 +34,8 @@ def reader_report(value: Any) -> Any:
 
 def reader_prose(value: Any) -> str:
     text = reader_text(str(value or ""))
-    text = re.sub(r"\b(?:E-[A-Za-z0-9_-]+|M-INPUT|[TG]\d+)\b", "", text)
-    text = re.sub(r"\[\s*\]", "", text)
+    text = re.sub(r"\b(?:E-[A-Za-z0-9_-]+|M-INPUT)\b", "", text)
+    text = re.sub(r"\[\s*\]|（[\s,，、;；]*）|\([\s,，、;；]*\)", "", text)
     text = re.sub(r"\s+([，。；、])", r"\1", text)
     return re.sub(r"\s{2,}", " ", text).strip(" ，；、")
 
@@ -66,8 +66,10 @@ def normalize_candidate_reader_content(
     def entry(raw: Any, allowed: set[str], *, require_source: bool = False) -> dict[str, Any]:
         raw = raw if isinstance(raw, dict) else {"text": raw}
         text = candidate_reader_prose(raw.get("text"))
+        # Recover explicit source identifiers before removing them from prose.
+        inline = re.findall(r"\bE-[A-Za-z0-9_-]+\b", str(raw.get("text") or ""))
         refs = list(dict.fromkeys(
-            str(item) for item in raw.get("evidence_ids", [])
+            str(item) for item in [*(raw.get("evidence_ids") or []), *inline]
             if str(item) in allowed
         ))
         if require_source and not refs:
@@ -76,11 +78,11 @@ def normalize_candidate_reader_content(
 
     raw_content = value.get("research_content") if isinstance(value.get("research_content"), dict) else {}
     research_content = {
-        key: entry(raw_content.get(key), cited_evidence_ids)
+        key: entry(raw_content.get(key), allowed_evidence_ids)
         for key in ("research_object", "core_question", "method_route")
     }
     normalized = {
-        "reason": entry(value.get("reason"), cited_evidence_ids),
+        "reason": entry(value.get("reason"), allowed_evidence_ids),
         "research_content": research_content,
         "evidence_summary": entry(value.get("evidence_summary"), cited_evidence_ids, require_source=True),
     }
@@ -105,7 +107,7 @@ def candidate_reader_report_fields(candidate: Any, citation_map: dict[str, int])
         if getattr(link, "relation", "") in {"supports", "contradicts"}
         and getattr(link, "evidence_id", None)
     }
-    associated_ids = substantive_link_ids if evidence_links else candidate_ids | linked_ids
+    associated_ids = candidate_ids | linked_ids
 
     def cited(entry: Any, *, require_source: bool = False) -> str:
         if not isinstance(entry, dict):
@@ -114,11 +116,11 @@ def candidate_reader_report_fields(candidate: Any, citation_map: dict[str, int])
         refs = list(dict.fromkeys(
             f"[{citation_map[evidence_id]}]"
             for evidence_id in entry.get("evidence_ids", [])
-            if evidence_id in associated_ids and evidence_id in citation_map
+            if evidence_id in (substantive_link_ids if require_source and evidence_links else associated_ids) and evidence_id in citation_map
         ))
         if require_source and not refs:
             return ""
-        return (text + (" " + " ".join(refs) if refs else "")).strip()
+        return (text + (" " + "".join(refs) if refs else "")).strip()
 
     reason = cited(content.get("reason")) or candidate_reader_prose(
         getattr(candidate, "innovation", "") or getattr(candidate, "distinctiveness_rationale", "")
@@ -143,6 +145,8 @@ def candidate_reader_report_fields(candidate: Any, citation_map: dict[str, int])
         fields.append({"label": "研究内容", "value": "\n".join(research_lines)})
     if evidence_summary:
         fields.append({"label": "文献依据", "value": evidence_summary})
+    elif background := cited(content.get("background_summary")):
+        fields.append({"label": "相关文献", "value": background})
     return fields
 
 

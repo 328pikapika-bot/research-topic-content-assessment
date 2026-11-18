@@ -40,6 +40,23 @@ class FakeTopicSearch:
         ]
 
 
+def assert_published_citations_are_used(result):
+    import re
+    sections = result.report_plan.sections
+    references = next(section for section in sections if section['key'] == 'references')
+    items = next(block['items'] for block in references['blocks'] if block['kind'] == 'reference_list')
+    numbers = {item['number'] for item in items}
+    assert numbers == set(result.report_plan.citation_map.values()) == set(range(1, len(items) + 1))
+    visible = json.dumps([section for section in sections if section['key'] != 'references'], ensure_ascii=False)
+    visible += json.dumps(result.report_plan.table_specs, ensure_ascii=False)
+    assert numbers == {int(number) for number in re.findall(r'\[(\d+)\]', visible)}
+    assert result.report_snapshot.report_plan_snapshot['citation_map'] == result.report_plan.citation_map
+    details = [block for section in sections for block in section['blocks'] if block['kind'] == 'candidate_detail']
+    priority = next(table['rows'] for table in result.report_plan.table_specs if table['key'] == 'candidate_priority')
+    assert [row['候选题'] for row in priority] == [block['title'] for block in details]
+    assert [row['方向类型'] for row in priority] == ['推荐方向' if candidate.direction_type == 'recommended' else '探索方向' for candidate in result.candidates[:5]]
+
+
 def test_current_homepage_topic_cases_run_full_flow() -> None:
     root = Path(__file__).resolve().parents[2]
     script = """
@@ -49,7 +66,8 @@ const ts = require('./frontend/web/node_modules/typescript')
 const source = fs.readFileSync('./frontend/web/src/services/homepageDraft.ts', 'utf8')
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
 const exports = {}
-vm.runInNewContext(compiled, { exports })
+const caseCatalog = JSON.parse(fs.readFileSync('./frontend/web/src/services/homepageCases.json', 'utf8'))
+vm.runInNewContext(compiled, { exports, require: name => name === './homepageCases.json' ? { default: caseCatalog } : require(name) })
 process.stdout.write(JSON.stringify(exports.TOPIC_CASES.map(({ id, input }) => ({ id, input }))))
 """
     cases = json.loads(subprocess.run(
@@ -61,7 +79,7 @@ process.stdout.write(JSON.stringify(exports.TOPIC_CASES.map(({ id, input }) => (
         result = asyncio.run(agent.run(agent.create_initial_state(case["input"], analysis_mode="fast")))
         assert result.current_stage == "completed", case["id"]
         assert result.candidates, case["id"]
-        assert result.report_plan.citation_map, case["id"]
+        assert_published_citations_are_used(result)
 
 
 def test_topic_selection_runs_nine_stages_with_traceable_report() -> None:
@@ -75,7 +93,7 @@ def test_topic_selection_runs_nine_stages_with_traceable_report() -> None:
     assert result.candidates
     assert result.report_plan.report_version.startswith("TopicReportV7-")
     assert len(result.report_plan.sections) == 6
-    assert result.report_plan.citation_map
+    assert_published_citations_are_used(result)
     assert all(item.model_status == "disabled" for item in result.stage_trace)
     assert all(item.model_call_count == 0 for item in result.stage_trace)
 
@@ -219,7 +237,7 @@ class FakeStageModel:
         if stage == self.fail_stage:
             raise DeepSeekClientError("simulated model timeout", metrics=metrics)
         if stage == "input_modeling":
-            result = {"concise_title": "蛋白质结构可验证研究", "boundary": "公开研究与实验验证边界", "research_question": "如何建立可验证的研究路线？", "missing_fields": [], "terms": []}
+            result = {"concise_title": "蛋白质结构可验证研究", "boundary": "公开研究与实验验证边界", "research_question": "如何建立可验证的研究路线？", "material_summary": "材料提出蛋白质结构预测问题，并计划用独立样本验证模型结果。", "document_summaries": [{"material_ref": "f1", "summary": "材料描述了蛋白质结构预测任务和独立样本验证设想。"}], "missing_fields": [], "terms": []}
         elif stage == "theme_decomposition":
             result = {"themes": [], "relations": []}
         elif stage == "retrieval_evidence":
@@ -275,6 +293,8 @@ def test_deep_analysis_calls_model_for_all_nine_stages_and_filters_unknown_evide
     assert all(item.prompt_version for item in result.stage_trace)
     assert all(item.model_call_count >= 1 for item in result.stage_trace)
     assert all(item.model_duration_ms and item.model_duration_ms > 0 for item in result.stage_trace)
+    assert result.input_profile.material_summary == "材料提出蛋白质结构预测问题，并计划用独立样本验证模型结果。"
+    assert result.input_profile.documents[0].summary == "材料描述了蛋白质结构预测任务和独立样本验证设想。"
     sent_payloads = "\n".join(str(item["user_prompt"]) for item in model.calls)
     assert "test@example.com" not in sent_payloads
     assert "13800138000" not in sent_payloads

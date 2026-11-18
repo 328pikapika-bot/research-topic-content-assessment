@@ -1,7 +1,7 @@
 /* Unified research service workspace */
 :root {
-  --workspace-accent: #6575f4;
-  --workspace-accent-strong: #4f5fe4;
+  --workspace-accent: #004098;
+  --workspace-accent-strong: #003477;
   --workspace-blue: #2f80ed;
   --workspace-ink: #262a3a;
   --workspace-muted: #777e91;
@@ -490,7 +490,7 @@
 .history-row__progress em { display: block; height: 100%; border-radius: inherit; background: var(--workspace-accent); }
 .history-row__open,
 .history-row__delete { border: 0; }
-.history-row__open:hover { background: #eef0ff; color: var(--workspace-accent-strong); }
+.history-row__open:hover { background: #eaf2ff; color: var(--workspace-accent-strong); }
 .history-skeleton { display: grid; }
 .history-skeleton__row {
   display: grid;
@@ -606,8 +606,8 @@
   content: '';
 }
 .modern-task-context__query {
-  max-height: 190px;
-  overflow: auto;
+  max-height: none;
+  overflow: visible;
   border-left: 0;
   border-radius: 6px;
   background: #f7f8fc;
@@ -654,7 +654,7 @@
 .modern-summary-card__auto { padding: 11px 13px; border-radius: 6px; background: #f7f8fc; color: #747b8d; font-size: 11px; }
 .modern-metrics > span { border-radius: 6px; background: #f4f5ff; }
 .modern-metrics strong { color: var(--workspace-accent-strong); }
-.modern-running-card__icon { border-radius: 8px; background: #eef0ff; color: var(--workspace-accent); }
+.modern-running-card__icon { border-radius: 8px; background: #eaf2ff; color: var(--workspace-accent); }
 .modern-progress > i { background: #ebeef4; }
 .modern-progress > i em { background: var(--workspace-accent); }
 .modern-workflow__orbit { overflow: visible; }
@@ -666,12 +666,12 @@
 .modern-orbit__stage:hover,
 .modern-orbit__stage:focus-visible,
 .modern-orbit__stage.active { border-color: #ccd1f6; background: #f7f8ff; box-shadow: 0 8px 20px rgba(66,72,128,.08); }
-.modern-orbit__stage.active .modern-orbit__marker { border-color: var(--workspace-accent); background: var(--workspace-accent); box-shadow: 0 0 0 5px #eff0ff; }
+.modern-orbit__stage.active .modern-orbit__marker { border-color: var(--workspace-accent); background: var(--workspace-accent); box-shadow: 0 0 0 5px #eaf2ff; }
 .modern-orbit__stage.active .modern-orbit__label strong { color: var(--workspace-accent-strong); }
-.modern-orbit__stage.is-running .modern-orbit__marker { border-color: var(--workspace-accent); background: #eff0ff; color: var(--workspace-accent-strong); }
+.modern-orbit__stage.is-running .modern-orbit__marker { border-color: var(--workspace-accent); background: #eaf2ff; color: var(--workspace-accent-strong); }
 .modern-workflow__linear button { border-radius: 6px; }
 .modern-workflow__linear button:hover,
-.modern-workflow__linear button.active { border-color: #d3d7f5; background: #f3f4ff; color: var(--workspace-accent-strong); }
+.modern-workflow__linear button.active { border-color: #bed4ef; background: #eaf2ff; color: var(--workspace-accent-strong); }
 .modern-workflow__linear button.active > span { background: var(--workspace-accent); }
 .modern-output-grid article { border-color: #e7e9ef; border-radius: 7px; background: #fafbfc; }
 .modern-output-grid h3 .material-icons-outlined { color: var(--workspace-accent); }
@@ -689,7 +689,7 @@
 .modern-source-chart > div { display: grid; grid-template-columns: 100px 1fr 34px; align-items: center; gap: 10px; }
 .modern-source-chart span { overflow: hidden; color: #666e81; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .modern-source-chart i { height: 8px; overflow: hidden; border-radius: 2px; background: #edf0f5; }
-.modern-source-chart em { display: block; height: 100%; border-radius: inherit; background: #6d7bee; }
+.modern-source-chart em { display: block; height: 100%; border-radius: inherit; background: var(--workspace-accent); }
 .modern-source-chart b { color: #50576a; font-size: 11px; text-align: right; }
 .modern-trend--large { height: 168px; }
 .modern-trend--large i { height: 138px; }
@@ -718,7 +718,7 @@
   height: 32px;
   place-items: center;
   border-radius: 7px;
-  background: #eef0ff;
+  background: #eaf2ff;
   color: var(--workspace-accent-strong);
   font-size: 10px;
   font-weight: 800;
@@ -823,7 +823,7 @@
   .modern-report-document { min-width: 0; max-width: 100%; }
   .modern-task-workspace__heading { align-items: flex-start; }
   .modern-task-workspace__heading h1 { font-size: 24px; }
-  .modern-task-context__query { max-height: 154px; }
+  .modern-task-context__query { max-height: none; }
   .modern-card__heading { flex-wrap: wrap; }
   .modern-file-chip { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .modern-task-workspace h1,

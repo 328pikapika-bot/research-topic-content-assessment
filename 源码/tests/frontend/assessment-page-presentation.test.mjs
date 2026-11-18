@@ -30,6 +30,7 @@ test('task API adapter preserves stage evaluations and reader comparisons before
     }) }
     if (name === './resultSnapshot') return snapshotContext.exports
     if (name === './assessmentEvidencePresentation') return {}
+    if (name === './apiErrors') return {}
     throw new Error(`Unexpected dependency: ${name}`)
   } }
   const adapterSource = fs.readFileSync(new URL('../../frontend/web/src/services/contentAssessmentUiApi.ts', import.meta.url), 'utf8')
@@ -233,4 +234,12 @@ test('report evaluations fill missing dimensions without replacing accepted stag
   assert.equal(rows[0].lead, accepted.text)
   assert.equal(rows[1].lead, '报告阶段补充的前沿性评价。')
   assert.equal(rows[2].lead, '报告阶段补充的先进性评价。')
+})
+
+
+test('citation aliases resolve only when the frozen number refers to the same source', () => {
+  const original = { evidence_id: 'A', doi: '10.1234/paper', title: 'Original source' }
+  const alias = { evidence_id: 'B', doi: 'https://doi.org/10.1234/paper', title: 'Imported alias' }
+  assert.equal(citations({ A: 1, B: 1 }, [original, alias])[1], original)
+  assert.deepEqual(Object.keys(citations({ A: 1, B: 1 }, [original, { ...alias, doi: '10.1234/other' }])), [])
 })

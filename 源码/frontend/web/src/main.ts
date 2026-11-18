@@ -9,6 +9,7 @@ import './styles/main.css'
 import './styles/app-sidebar.css'
 import './styles/workspace-modern.css'
 import './styles/home-landing.css'
+import './styles/detail-page-design.css'
 
 createAuthManager()
 

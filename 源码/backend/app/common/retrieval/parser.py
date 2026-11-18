@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from app.common.retrieval.schemas import StandardPaper
-from app.common.retrieval.links import http_url, nstl_detail_url
+from app.common.retrieval.links import http_url, nstl_detail_url, bibliography_text
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +81,7 @@ class SearchResultParser:
         return StandardPaper(
             paper_id=paper_id,
             source=str(item.get("source", "nstl")),
-            title=str(item.get("title", "")),
+            title=bibliography_text(item.get("title", "")),
             authors=authors,
             year=self._safe_int(item.get("year", 0)),
             venue=self._parse_venue(item.get("hasSource", "")),

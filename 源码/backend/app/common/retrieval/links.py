@@ -1,5 +1,6 @@
 """Reader-facing evidence links, shared by reports and retrieval adapters."""
 import re
+import html
 from urllib.parse import quote, urlsplit
 
 
@@ -10,6 +11,16 @@ _LINK_ALIASES = {
     "paper_id": ("paper_id", "paperId", "paperID", "id", "documentId", "document_id", "articleId", "article_id", "recordId", "record_id"),
     "doi": ("doi", "DOI", "doiUrl", "doi_url"),
 }
+
+
+def bibliography_text(value) -> str:
+    """Present XML title markup as text without changing its source identity."""
+    text = html.unescape(str(value if value is not None else ""))
+    # Older frozen Markdown escaped the CDATA brackets before publication.
+    text = re.sub(r"<!\\\[CDATA\\\[(.*?)\\\]\\\]>", r"\1", text, flags=re.S)
+    text = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", text, flags=re.S)
+    text = re.sub(r"</?[A-Za-z][\w.-]*(?::[A-Za-z][\w.-]*)?(?:\s+[^<>]*)?\s*/?>", "", text)
+    return html.unescape(text).strip()
 
 
 def _field(value, aliases: tuple[str, ...], depth: int = 0):

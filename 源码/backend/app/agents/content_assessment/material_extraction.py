@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from .schemas import Claim, ContentAssessmentState, Indicator, QueryPlan, UploadedFileDigest
 
 
-INSTRUCTION = re.compile(r"^(?:请|要求[：:]?$|语言偏好|文献年份|报告模式|先列出|不要把|不得|禁止|每条主张|每一组查询)")
+INSTRUCTION = re.compile(r"^(?:请|要求[：:]?$|语言偏好|文献年份|报告模式|我要评估的是[：:]\s*(?:项目|论文|指南|专利|技术|成果|其他)\s*[。；;]?$|先列出|不要把|不得|禁止|每条主张|每一组查询)")
 
 
 def source_location_label(locator: dict | str | None) -> str:
@@ -61,7 +61,7 @@ def locate(source: UploadedFileDigest, quote: str, start: int | None = None) -> 
                 source_paragraph_ref=str(locator.get("paragraph", locator.get("row", locator.get("line", "")))))
 
 
-def source_chunks(state: ContentAssessmentState, limit: int = 6000) -> Iterator[str]:
+def source_chunks(state: ContentAssessmentState, limit: int = 3000) -> Iterator[str]:
     for source in material_sources(state):
         start = 0
         while start < len(source.content):
@@ -72,6 +72,24 @@ def source_chunks(state: ContentAssessmentState, limit: int = 6000) -> Iterator[
                     end = boundary + 1
             yield f"文件 ID: {source.file_id}\n文件名: {source.name}\n原文字符起点: {start}\n{source.content[start:end]}"
             start = end
+
+
+def split_source_chunk(chunk: str) -> tuple[str, str] | None:
+    """Bisect material without losing characters or changing source offsets."""
+    parts = chunk.split("\n", 3)
+    if len(parts) != 4 or len(parts[3]) < 600:
+        return None
+    file_line, name_line, offset_line, text = parts
+    start = int(offset_line.removeprefix("原文字符起点: "))
+    middle = len(text) // 2
+    # Prefer a paragraph or sentence boundary near the middle. Keep the
+    # delimiter in the left half so concatenation reproduces the source.
+    candidates = [match.end() for match in re.finditer(r"\n|[。！？；]", text)
+                  if len(text) // 3 <= match.end() <= len(text) * 2 // 3]
+    boundary = min(candidates, key=lambda value: abs(value - middle)) if candidates else middle
+    header = f"{file_line}\n{name_line}\n原文字符起点: "
+    return (f"{header}{start}\n{text[:boundary]}",
+            f"{header}{start + boundary}\n{text[boundary:]}")
 
 
 def rows(source: UploadedFileDigest) -> Iterator[tuple[dict[str, str], int]]:

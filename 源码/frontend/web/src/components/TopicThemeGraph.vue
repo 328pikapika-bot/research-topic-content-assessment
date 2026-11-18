@@ -1,7 +1,7 @@
 <template>
   <figure class="theme-graph">
     <figcaption>研究主题层级</figcaption>
-    <ResearchGraphCanvas v-if="hierarchy.length" :nodes="layout.nodes" :edges="layout.edges" :width="layout.width" :height="layout.height" :max-height="420" label="研究主题层级树" :selected-ids="[selected]" @select="select" />
+    <ResearchGraphCanvas v-if="hierarchy.length" :nodes="layout.nodes" :edges="layout.edges" :width="layout.width" :height="layout.height" :max-height="420" label="研究主题层级树" :selected-ids="[selected, `keywords:${selected}`]" @select="select" />
     <p v-else class="caption">主题正在整理。</p>
     <p class="caption">层级表示研究范围的归属，关键词是检索线索。横向联系与方法依据见研究机会分析。</p>
     <div v-if="current" class="theme-detail">
@@ -26,17 +26,21 @@ watch(() => hierarchy.value.map(n => `${n.theme_id}:${n.parent}`).join('|'), () 
 const current = computed(() => hierarchy.value.find(n => n.theme_id === selected.value))
 function hasChildren(id: string) { return hierarchy.value.some(n => n.parent === id) }
 function toggle(id: string) { const next = new Set(expanded.value); next.has(id) ? next.delete(id) : next.add(id); expanded.value = next }
-function select(id: string) { if (hierarchy.value.some(n => n.theme_id === id)) selected.value = id }
+function select(id: string) { const themeId = id.replace(/^keywords:/, ''); if (hierarchy.value.some(n => n.theme_id === themeId)) selected.value = themeId }
 const layout = computed(() => {
   const ordered: any[] = []
   function visit(n: any) { ordered.push(n); if (expanded.value.has(n.theme_id)) hierarchy.value.filter(c => c.parent === n.theme_id).forEach(visit) }
   hierarchy.value.filter(n => n.depth === 1).forEach(visit)
   const deepest = Math.max(1, ...ordered.map(n => n.depth))
-  const rowHeights = ordered.map(node => Math.max(96, 54 + Math.ceil(String(node.display_label || node.label || '').length / 15) * 22))
+  const keywordHeight = (node: any) => Math.max(90, 48 + Math.ceil((node.seed_terms || []).join('、').length / 16) * 20)
+  const rowHeights = ordered.map(node => Math.max(96, 54 + Math.ceil(String(node.display_label || node.label || '').length / 15) * 22,
+    !hasChildren(node.theme_id) && node.seed_terms?.length ? keywordHeight(node) : 0))
   const rowGap = 22
   const contentHeight = rowHeights.reduce((total, value) => total + value, 0) + Math.max(0, rowHeights.length - 1) * rowGap
-  const height = Math.max(300, contentHeight + 48)
-  const nodes: GraphNode[] = [{ id: 'root', label: props.tree.display_root || props.tree.root || '研究总方向', subtitle: '研究总方向', x: 20, y: height / 2 - 42, width: 200, height: 84 }]
+  const rootLabel = props.tree.display_root || props.tree.root || '研究总方向'
+  const rootHeight = Math.max(84, 54 + Math.ceil(String(rootLabel).length / 11) * 22)
+  const height = Math.max(300, contentHeight + 48, rootHeight + 48)
+  const nodes: GraphNode[] = [{ id: 'root', kind: 'theme', label: rootLabel, subtitle: '研究总方向', x: 20, y: (height - rootHeight) / 2, width: 200, height: rootHeight }]
   const edges: GraphEdge[] = []
   let rowY = (height - contentHeight) / 2
   ordered.forEach((n,i) => {
@@ -46,8 +50,7 @@ const layout = computed(() => {
     if (!n.uncertain) edges.push({ id: n.theme_id, source: n.parent, target: n.theme_id, color, active: n.theme_id === selected.value })
     if (!hasChildren(n.theme_id) && n.seed_terms?.length) {
       const id = `keywords:${n.theme_id}`
-      const keywordHeight = Math.max(90, 48 + Math.ceil(n.seed_terms.join('、').length / 16) * 20)
-      nodes.push({ id, label: n.seed_terms.join('、'), subtitle: '关键词', kind: 'keyword', x: 280 + deepest * 270, y: rowY, width: 220, height: keywordHeight, color })
+      nodes.push({ id, label: n.seed_terms.join('、'), subtitle: '关键词', kind: 'keyword', x: 280 + deepest * 270, y: rowY, width: 220, height: keywordHeight(n), color })
       edges.push({ id, source: n.theme_id, target: id, color, active: n.theme_id === selected.value })
     }
     rowY += rowHeight + rowGap

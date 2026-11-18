@@ -211,6 +211,10 @@ async def evaluate_points(graph, state):
                            "missing_dimensions": [dim for dim in DIMENSIONS if dim not in dims]}
         fingerprints[cid] = fingerprint
         if not packet["literature"]:
+            from .source_recovery import source_limited
+            if source_limited(state, claim):
+                completion[cid].update(status="limited", reason="no_comparable_source",
+                    message="补充检索后仍未取得直接可比文献，该要点保留材料说明并明确判断范围。")
             continue
         feedback = previous_feedback
         # Initial generation plus at most one targeted repair in this attempt.

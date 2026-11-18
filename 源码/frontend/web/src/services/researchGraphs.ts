@@ -9,10 +9,11 @@ export function graphPath(a: GraphNode, b: GraphNode) {
   return Math.abs(sy - ty) < 1 ? `M ${sx} ${sy} L ${tx} ${ty}` : `M ${sx} ${sy} C ${mid} ${sy}, ${mid} ${ty}, ${tx} ${ty}`
 }
 export function participants(row: Record<string, any>) {
-  const source = row.participating_disciplines?.length ? row.participating_disciplines : [
+  const source = row.participating_disciplines?.length ? [...row.participating_disciplines] : [
     { discipline: row.core || row.core_discipline, role: 'core' },
     { discipline: row.expansion || row.expansion_discipline, role: 'expansion' },
   ]
+  if (!source.some((p: any) => p.role === 'core')) source.unshift({ discipline: row.core || row.core_discipline, role: 'core' })
   const seen = new Set<string>()
   return source.filter((p: any) => {
     const key = String(p.discipline || '').trim()

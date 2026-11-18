@@ -3457,7 +3457,7 @@ button {
   color: var(--gq-tech-blue);
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: inherit;
   line-height: 1.4;
   font-weight: 600;
 }

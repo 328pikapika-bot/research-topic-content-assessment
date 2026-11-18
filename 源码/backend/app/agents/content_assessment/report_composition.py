@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import html
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -793,7 +794,10 @@ def source_identity(e) -> str:
 
 
 def reader_text(text: str) -> str:
-    return re.sub(r"\brun_[A-Za-z0-9_-]+\b", "本次评估", text or "")
+    from app.common.retrieval.links import bibliography_text
+    text = bibliography_text(text)
+    text = re.sub(r"(\[\d+\])\s+(?=\[\d+\])", r"\1", text)
+    return re.sub(r"\brun_[A-Za-z0-9_-]+\b", "本次评估", text)
 
 
 def state_from_snapshot(snapshot: ReportSnapshot) -> ContentAssessmentState:
@@ -830,8 +834,9 @@ def render_citations(text: str, numbers: dict[str, int]) -> str:
     return re.sub(r"(?<![\w-])(?:" + pattern + r")(?![\w-])", lambda m: f"[{numbers[m[0]]}]", text)
 
 
-def markdown(state: ContentAssessmentState) -> str:
+def markdown(state: ContentAssessmentState, *, include_images: bool = False) -> str:
     from .research_outline import SCHOLARLY_TEMPLATES, TEMPLATE
+    from app.services.report_markdown import superscript_citations
     snapshot = state.report_snapshot
     numbers = snapshot.citation_numbers if snapshot else {}
     from app.services.content_assessment_report import _display_title, build_report_chart_assets, prepare_chart_manifest
@@ -844,15 +849,40 @@ def markdown(state: ContentAssessmentState) -> str:
     else:
         lines = [f"# {_display_title(state)}", "", plan.report_type,
                  f"报告版本：{plan.report_version}", f"证据截止日期：{plan.evidence_cutoff_date}", "", "## 目录", ""]
+    profile = frozen.assessment_profile
+    meta = snapshot.cover_metadata if snapshot else {}
+    rows = [
+        ("评估对象", profile.assessment_object or profile.title or "待确认"),
+        ("委托目的", profile.assessment_goal or "科研项目创新性评估"),
+        ("报告类型", plan.report_type), ("报告版本", plan.report_version),
+        ("证据截止日期", plan.evidence_cutoff_date or "待记录"),
+        ("生成时间", meta.get("generated_at", "待记录")),
+        ("评估范围", profile.scope_boundary or "以任务输入材料及检索计划为边界"),
+        ("版本链", "；".join(f"{label} {getattr(frozen.versions, key)}" for label, key in [("输入", "input_version"), ("证据池", "evidence_pool_version"), ("规则", "rule_version"), ("模型", "model_version"), ("图表", "chart_data_snapshot_version"), ("模板", "template_version")]))]
+    cover = [
+        '<table class="report-cover-metadata">',
+        '<colgroup><col width="40%"><col width="60%"></colgroup>',
+        '<thead><tr><th style="white-space:nowrap">项目</th><th>内容</th></tr></thead>',
+        '<tbody>',
+        *[f"<tr><td style=\"white-space:nowrap\">{html.escape(label)}</td><td>{html.escape(str(value)).replace(chr(10), '<br>')}</td></tr>" for label, value in rows],
+        '</tbody></table>',
+        "",
+    ]
+    toc_index = lines.index("## 目录")
+    lines[toc_index:toc_index] = cover
     specs = snapshot.sections if snapshot else state.report_plan.section_specs
     research = bool(snapshot and snapshot.template_version in {TEMPLATE, "ContentAssessmentResearchReportV6"})
     for spec in specs:
         lines.append(f"{'  ' * (spec.level - 1)}- {spec.title}")
         lines.extend(f"{'  ' if research else '  ' * (b.heading_level - 1)}- {b.text}"
                      for b in spec.blocks if b.kind == "heading" and (not research or b.heading_level <= 3))
-    assets = build_report_chart_assets(state) if snapshot else {}
+    assets = build_report_chart_assets(state) if snapshot and include_images else {}
     def figure(key):
         entry = next((e for e in snapshot.chart_manifest if e["chart_key"] == key), None) if snapshot else None
+        if entry and entry["included"] and not include_images:
+            from app.services.report_markdown import chart_data_markdown
+            lines.extend(["", reader_text(entry["chart_caption"]), reader_text(f"数据来源：{entry['chart_source_note']}"), ""])
+            lines.extend(chart_data_markdown(entry.get("chart_data", {})))
         if entry and entry["included"] and key in assets:
             contents = [assets[key]]
             contents.extend(assets[f"{key}:{i}"] for i in range(2, len(assets) + 2) if f"{key}:{i}" in assets)
@@ -865,7 +895,12 @@ def markdown(state: ContentAssessmentState) -> str:
     for spec in specs:
         lines.extend(["", f"{'#' * (spec.level + 1)} {spec.title}", ""])
         if not spec.blocks:
-            lines.append(reader_text(render_citations(spec.content, numbers)))
+            value = reader_text(render_citations(spec.content, numbers))
+            if spec.section_key == "references":
+                value = re.sub(r"^\[(\d+)\]", r'<a id="ref-\1"></a>\n\n[\1]', value, flags=re.MULTILINE)
+            else:
+                value = superscript_citations(value)
+            lines.append(value)
         for block in spec.blocks:
             if block.kind == "figure":
                 figure(block.text)
@@ -877,6 +912,10 @@ def markdown(state: ContentAssessmentState) -> str:
             elif block.kind == "callout":
                 label = {"execution": "公开执行摘要", "result": "结果", "risk": "风险"}.get(block.callout_style, "结果")
                 value = f"> 【{label}】{value}"
+            if spec.section_key == "references":
+                value = re.sub(r"^\[(\d+)\]", r'<a id="ref-\1"></a>\n\n[\1]', value, flags=re.MULTILINE)
+            else:
+                value = superscript_citations(value)
             lines.extend([value, ""])
         placed = {b.text for b in spec.blocks if b.kind == "figure"}
         for key in spec.chart_keys:

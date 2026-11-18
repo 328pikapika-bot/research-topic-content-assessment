@@ -41,7 +41,8 @@ def test_exports_read_frozen_facts_and_share_figures(monkeypatch):
     doc = Document(io.BytesIO(raw))
     assert "不应进入冻结报告的变更" not in html
     assert all(section.title in html for section in snapshot.sections)
-    assert expected.count("data:image/png;base64,") == 1
+    assert "data:image/png;base64," not in expected
+    assert markdown(state, include_images=True).count("data:image/png;base64,") == 1
     assert html.count("<figure>") == 1
     # The result layout has five fixed, data-backed report figures.
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
@@ -215,6 +216,8 @@ def test_reference_report_real_pagination_toc_and_links(tmp_path):
     docx, _ = export_service.build_docx(state)
     pdf, _ = export_service.build_pdf(state)
     text, _ = export_service.build_markdown(state)
+    assert re.search(r'<a id="ref-1"></a>\n\n\[1\] ', text)
+    assert not re.search(r'<a id="ref-1"></a>\n\[1\] ', text)
     html, _ = export_service.build_html(state)
     for name, payload in (("report.docx", docx), ("report.pdf", pdf)):
         (tmp_path / name).write_bytes(payload)
@@ -232,7 +235,7 @@ def test_reference_report_real_pagination_toc_and_links(tmp_path):
         toc = document.get_toc()
         assert len(toc) >= 20
         assert any(link.get("uri", "").startswith("https://") for page in document for link in page.get_links())
-        assert sum(len(page.get_image_info()) for page in document) >= 1
+        assert sum(len(page.get_image_info()) for page in document) >= len(build_report_chart_assets(state))
         for page in document:
             for figure in page.get_image_info():
                 if figure["height"] == 900:
@@ -243,16 +246,18 @@ def test_reference_report_real_pagination_toc_and_links(tmp_path):
     with zipfile.ZipFile(io.BytesIO(docx)) as archive:
         xml = archive.read("word/document.xml").decode()
         assert "TOC" in xml
-        assert 'w:firstLine="420"' in xml
+        assert 'w:firstLine="480"' in xml
         if any(b.kind == "table" for section in state.report_snapshot.sections for b in section.blocks):
             assert "tblHeader" in xml
         else:
             assert "<w:tbl>" not in xml
     def normalize(value):
-        # Citation positions can differ visually in superscript runs; their
+        # Citation runs remain separate hyperlinks; their
         # numbers and URLs are separately checked above. Compare all prose.
         # Markdown keeps link syntax; DOCX/PDF/HTML render the link label.
         value = re.sub(r"\[([^\]]+)\]\(<?https?://[^\s)]+>?\)", r"\1", value)
+        value = re.sub(r'<a id="[^"]+"></a>|\[\d+\]\(#ref-\d+\)', "", value)
+        value = re.sub(r'</?(?:sup|a)(?:\s[^>]*)?>', '', value)
         return re.sub(r"\s+", "", re.sub(r"\[\d+\]", "", value))
     doc_text = "".join(node.text or "" for node in ET.fromstring(xml).iter("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"))
     contents = {"DOCX": normalize(doc_text), "PDF": normalize(body_text),

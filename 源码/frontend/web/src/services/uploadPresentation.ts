@@ -3,6 +3,30 @@ export function isUploadedDocument(record: any): boolean {
   return Boolean(id && record?.name && !/^(user_material|M-INPUT)(?:$|[_-]|\d)/i.test(id))
 }
 
+export function materialSummary(document: any, state: any): string {
+  if (document.error_message) return document.error_message
+  const profile = state?.input_profile || {}
+  const analysis = state?.stage_artifacts?.input_modeling?.analysis || {}
+  const clean = (value: unknown, limit: number) => {
+    let text = String(value || '').replace(/<[^>]*>/g, ' ').replace(/&#x20;|&nbsp;/gi, ' ')
+    text = text.replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&quot;/gi, '"')
+      .replace(/\s+/g, ' ').trim()
+    if (text.length <= limit) return text
+    const head = text.slice(0, limit)
+    const boundary = Math.max(head.lastIndexOf('。'), head.lastIndexOf('；'), head.lastIndexOf('？'), head.lastIndexOf('！'))
+    return `${boundary >= limit * 0.55 ? head.slice(0, boundary + 1) : head.slice(0, limit - 1).trim()}…`
+  }
+  const analyzed = document.summary || profile.material_summary || analysis.material_summary || analysis.summary
+  if (analyzed) return `材料概括：${clean(analyzed, 240)}`
+
+  const title = clean(profile.title || profile.research_object, 48)
+  const question = clean(profile.research_question || state?.constraint_card?.boundary_text, 150)
+  const terms = (state?.term_map || []).map((item: any) => clean(item.preferred, 24)).filter(Boolean).slice(0, 5)
+  const parts = [title && `研究主题：${title}`, question && question !== title && `核心问题：${question}`,
+    terms.length && `识别术语：${terms.join('、')}`].filter(Boolean)
+  return parts.length ? `材料概括：${parts.join('。')}。` : document.parse_warnings?.join('；') || '该历史任务未保存独立的材料概括。'
+}
+
 export function uploadPresentation(state: any, records: any[] = []) {
   const uploads = Array.isArray(state?.uploaded_files) ? state.uploaded_files : null
   const context = Array.isArray(state?.uploaded_file_context?.files) ? state.uploaded_file_context.files : null

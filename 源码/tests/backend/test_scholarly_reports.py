@@ -274,7 +274,8 @@ def test_v7_freezes_research_chapters_and_all_formats_use_selected_sources():
     assert "material_details" not in {x.section_key for x in snap.sections}
     text = markdown(s)
     assert "Galaxy" not in text
-    assert not any(word in text for word in ["结论强度","内部评分","探索性评估报告"])
+    assert not any(word in text.split("## 目录", 1)[-1] for word in ["结论强度","内部评分","探索性评估报告"])
+    assert '<td style="white-space:nowrap">报告类型</td>' in text
     assert "字段覆盖0/7" not in text and "缺少方法字段" not in text
     assert "肝脏芯片灌流条件设计" in text
     raw,_ = build_content_assessment_docx(s)
@@ -402,3 +403,20 @@ def test_public_repository_fallback_keeps_preprint_and_abstract_scope():
     assert records[0].access_status == 'abstract_only'
     assert not records[0].fulltext_available
     assert not asyncio.run(run([2021,2026]))
+def test_cell_cycle_terms_are_not_internal_workflow_codes():
+    from app.agents.topic_selection.scholarly_report import INTERNAL_CODE_RE
+    assert not INTERNAL_CODE_RE.search("比较HeLa细胞G1和G2/M期比例，观察C3通路。")
+    assert INTERNAL_CODE_RE.search("关联主题T1与研究空白G2")
+
+
+def test_repair_history_retains_the_latest_result_per_paragraph():
+    from app.agents.topic_selection.scholarly_report import compact_repair_history
+    from app.agents.topic_selection.schemas import TopicSelectionState
+    state = TopicSelectionState(raw_user_input="历史任务")
+    repairs = [{"key": "summary", "index": index % 5, "field": "text", "result": {"text": str(index)}}
+               for index in range(120)]
+    state.stage_artifacts["report_publish"] = {"paragraph_repairs": repairs}
+    compact_repair_history(state)
+    kept = state.stage_artifacts["report_publish"]["paragraph_repairs"]
+    assert len(kept) == 5
+    assert {row["result"]["text"] for row in kept} == {str(index) for index in range(115, 120)}

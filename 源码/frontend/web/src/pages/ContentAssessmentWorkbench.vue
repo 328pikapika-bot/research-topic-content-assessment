@@ -28,7 +28,6 @@
         <button class="primary" type="submit" :disabled="submitting || (!assessmentSourceText(input) && !materials.length)">{{ submitting ? '正在识别材料' : needsSupplement ? '补充并继续' : '开始评估' }}</button>
       </form>
       <aside class="guide">
-        <h2>评估流程</h2>
         <ol><li v-for="stage in stages" :key="stage[0]"><strong>{{ stage[0] }}</strong><span>{{ stage[1] }}</span></li></ol>
         <div class="notice"><strong>结论边界</strong><p>没有可定位的独立外部证据时，系统只会给出探索性判断，不会将检索未命中表述为绝对原创。</p></div>
       </aside>

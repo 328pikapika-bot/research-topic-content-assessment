@@ -33,6 +33,7 @@ def implementation_signature():
     files = [Path(__file__), root / 'report_validation.py',
              root / 'topic_selection' / 'agent.py', root / 'topic_selection' / 'scholarly_report.py',
              root / 'topic_selection' / 'discovery.py', root.parent / 'services' / 'deepseek_client.py',
+             root / 'topic_selection' / 'presentation.py',
              root.parent / 'core' / 'topic_task_manager.py']
     return [(str(p.name), hashlib.sha256(p.read_bytes()).hexdigest()) for p in files if p.exists()]
 
@@ -49,7 +50,8 @@ def fingerprint(state):
     except Exception:
         config = 'not_configured'
     content = [state.raw_user_input, [(e.evidence_id, e.abstract, e.excerpt) for e in state.evidence_pool],
-               [c.model_dump() for c in state.candidates]]
+               [(c.candidate_id, c.title, c.research_question, c.method_route,
+                 tuple(c.evidence_ids)) for c in state.candidates]]
     return hashlib.sha256(json.dumps([IMPLEMENTATION_SIGNATURE, config, content], ensure_ascii=False, sort_keys=True, default=str).encode()).hexdigest()
 
 

@@ -42,7 +42,14 @@ export function listTopicSelectionTasks(params: { status?: string; search?: stri
   if (params.search?.trim()) query.set('search', params.search.trim())
   return request<{ items: TopicTask[]; total: number }>(`/v1/topic-selection/tasks?${query}`)
 }
-export function getTopicSelectionTask(taskId: string) { return request<{ success: boolean; data: TopicTaskDetail }>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}`).then((body) => body.data) }
+export async function getTopicSelectionTask(taskId: string) {
+  if (taskId.startsWith('public-case:')) {
+    const response = await fetch(`${API_BASE}/v1/public-cases/${encodeURIComponent(taskId.slice('public-case:'.length))}`)
+    if (!response.ok) throw await readApiError(response)
+    return (await response.json() as { data: TopicTaskDetail }).data
+  }
+  return request<{ success: boolean; data: TopicTaskDetail }>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}`).then((body) => body.data)
+}
 export async function getTopicReportChart(taskId: string, chartKey: string): Promise<string> {
   const response = await fetch(`${API_BASE}/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/report/charts/${encodeURIComponent(chartKey)}`, { headers: await headers() })
   if (!response.ok) throw await readApiError(response)
@@ -54,9 +61,13 @@ export function submitTopicConfirmation(taskId: string, selectedOption: string, 
 export function listTopicReviews(taskId: string) { return request<{ success: boolean; items: any[]; resolution_logs: any[] }>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/reviews`) }
 export function resolveTopicReview(taskId: string, reviewTaskId: string, decision: string, reason = '', operator = '') { return request<TopicRunResponse>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/reviews/${encodeURIComponent(reviewTaskId)}`, { method: 'POST', body: JSON.stringify({ decision, reason, operator }) }) }
 export function rerunTopicCorrection(taskId: string) { return request<TopicRunResponse>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/corrections/rerun`, { method: 'POST' }) }
+export function continueTopicRecovery(taskId: string, supplementalInput = '', action: 'supplement' | 'retry' = 'supplement') { return request<TopicRunResponse>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/recovery/continue`, { method: 'POST', body: JSON.stringify({ supplemental_input: supplementalInput, action }) }) }
 export function rerunTopicRetrieval(taskId: string) { return request<TopicRunResponse>(`/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/retrieval-rerun`, { method: 'POST' }) }
 export async function fetchTopicReportBlob(taskId: string, format: 'docx' | 'pdf' | 'html' | 'md' = 'docx', signal?: AbortSignal) {
-  const response = await fetch(`${API_BASE}/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/export?format=${format}`, { headers: await headers(), signal })
+  const endpoint = taskId.startsWith('public-case:')
+    ? `/v1/public-cases/${encodeURIComponent(taskId.slice('public-case:'.length))}/export?format=${format}`
+    : `/v1/topic-selection/tasks/${encodeURIComponent(taskId)}/export?format=${format}`
+  const response = await fetch(`${API_BASE}${endpoint}`, { headers: taskId.startsWith('public-case:') ? {} : await headers(), signal, cache: 'no-store' })
   if (!response.ok) throw new Error(await messageFor(response))
   return { blob: await response.blob(), disposition: response.headers.get('content-disposition') || '' }
 }

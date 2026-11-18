@@ -75,7 +75,7 @@
           <button v-for="task in historyItems" :key="task.task_id || task.id" type="button" class="app-sidebar__history-item" @click="openTask(task)">
             <span class="app-sidebar__history-title">{{ task.title || '未命名任务' }}</span>
             <span class="app-sidebar__history-meta">
-              <span class="app-sidebar__agent-tag" :class="task.task_type === '智能选题' ? 'app-sidebar__agent-tag--topic' : 'app-sidebar__agent-tag--assessment'">{{ task.task_type || '创新性评估' }}</span>{{ recoveryLabel(task.recovery) || statusLabel(task.status) }} · {{ formatDate(task.created_at) }}
+              <span class="app-sidebar__agent-tag" :class="task.task_type === '智能选题' ? 'app-sidebar__agent-tag--topic' : 'app-sidebar__agent-tag--assessment'">{{ task.task_type || '创新性评估' }}</span>{{ recoveryLabel(task.recovery, task.status) || statusLabel(task.status) }} · {{ formatDate(task.created_at) }}
             </span>
           </button>
         </template>

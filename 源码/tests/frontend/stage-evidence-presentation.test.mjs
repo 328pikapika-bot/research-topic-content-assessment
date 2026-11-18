@@ -34,7 +34,7 @@ test('task detail uses conditional disclosures without internal evidence ids', (
   assert.match(page, /LiteratureCard v-for="item in group.items.slice\(0, 2\)"/)
   assert.match(page, /section v-if="group.sources.length" class="assessment-comparison-section"/)
   assert.match(page, /v-for="row in comparisonRows\(group.key\)" :key="row.source.evidence_id"/)
-  assert.match(page, /LiteratureReferences :items="\[row.source\]" show-abstract/)
+  assert.match(page, /LiteratureReferences :items="\[row.source\]"/)
   assert.doesNotMatch(page, /内部编号：\{\{ item\.evidence_id \}\}/)
   assert.doesNotMatch(page, /内部编号：\{\{ decision\.claim_id \}\}/)
   assert.doesNotMatch(page, /本条文献尚未形成逐项同口径比对/)

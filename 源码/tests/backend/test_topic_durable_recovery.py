@@ -119,6 +119,7 @@ def test_execution_window_saves_checkpoint_and_releases_slot(monkeypatch):
     current = state()
     class SlowService:
         async def run(self, restored, on_stage_update):
+            restored = restored.model_copy(deep=True)
             restored.stage_artifacts['report_publish'] = {'reader_draft_result': {'saved': True}}
             await on_stage_update(restored)
             await asyncio.Event().wait()

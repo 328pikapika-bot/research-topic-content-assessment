@@ -56,6 +56,40 @@ def test_topic_renderer_styles_snapshot_without_mutating_it():
     assert REPORT_TYPOGRAPHY_CSS in markup.decode('utf-8')
 
 
+def test_citation_links_do_not_shrink_in_word_but_scientific_exponents_survive():
+    from docx.oxml import OxmlElement
+    document = Document()
+    paragraph = document.add_paragraph('研究结果')
+    exponent = paragraph.add_run('2')
+    exponent.font.superscript = True
+    link = OxmlElement('w:hyperlink')
+    link.set(qn('w:anchor'), 'ref_1')
+    run = OxmlElement('w:r')
+    props = run.get_or_add_rPr()
+    for tag, value in [('w:vertAlign', 'superscript'), ('w:position', '6')]:
+        node = OxmlElement(tag); node.set(qn('w:val'), value); props.append(node)
+    label = OxmlElement('w:t'); label.text = '[1]'; run.append(label)
+    link.append(run); paragraph._p.append(link)
+    apply_report_typography(document)
+    assert not run.xpath('./w:rPr/w:vertAlign | ./w:rPr/w:position')
+    assert run.xpath('./w:rPr/w:sz/@w:val') == ['24']
+    assert exponent.font.superscript is True
+    assert link.get(qn('w:anchor')) == 'ref_1'
+
+
+def test_topic_source_citations_are_body_size_and_preserve_brackets():
+    state = TopicSelectionState(raw_user_input='引用字号')
+    state.report_plan.sections = [dict(key='summary', title='推荐结论', blocks=[
+        dict(kind='paragraph', text='正文研究内容[1][2]。')])]
+    payload, _ = topic._build_topic_docx_source(state)
+    document = Document(io.BytesIO(payload))
+    citations = document.element.xpath('//w:hyperlink[starts-with(@w:anchor,"ref_")]/w:r')
+    assert [''.join(r.xpath('.//w:t/text()')) for r in citations] == ['[1]', '[2]']
+    for run in citations:
+        assert run.xpath('./w:rPr/w:sz/@w:val') == ['24']
+        assert not run.xpath('./w:rPr/w:vertAlign | ./w:rPr/w:position')
+
+
 def test_assessment_running_header_uses_official_title_without_cover_or_chapter_fields():
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 

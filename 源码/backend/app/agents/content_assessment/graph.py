@@ -70,6 +70,9 @@ from app.core.config import BEIJING_TZ
 from app.agents.content_assessment.material_extraction import (
     INSTRUCTION, explicit_claims, enrich_indicators, locate, material_sources, relevant, source_chunks,
 )
+from .material_extraction_recovery import (
+    RECOVERABLE_OUTPUT_ERRORS, extract_material_chunk, extraction_checkpoint,
+)
 from app.common.retrieval import LiteratureSearchClient, SearchRequest
 from app.common.retrieval.links import evidence_url, http_url, nstl_detail_url
 from app.core.config import (
@@ -83,14 +86,12 @@ from app.services.deepseek_client import DeepSeekClient, DeepSeekClientError
 from app.agents.content_assessment.prompts import (
     COMPARISON_SYSTEM_PROMPT,
     LANDSCAPE_SYSTEM_PROMPT,
-    MATERIAL_SYSTEM_PROMPT,
     PROMPT_VERSION,
     RETRIEVAL_SYSTEM_PROMPT,
     RULE_VERSION,
     TEMPLATE_VERSION,
     comparison_prompt,
     landscape_prompt,
-    material_extraction_prompt,
     retrieval_planning_prompt,
 )
 from app.agents.content_assessment.scenario_catalog import scenario_config
@@ -825,26 +826,31 @@ class ContentAssessmentGraph:
         extracted: list[Claim] = []
         extracted_indicators: list[Indicator] = []
         incomplete = False
-        for chunk in source_chunks(state):
-            payload = await self._request_model_json(state, stage="claim_extraction",
-                system_prompt=MATERIAL_SYSTEM_PROMPT,
-                user_prompt=material_extraction_prompt(chunk), max_tokens=4000)
-            if payload is not None:
-                previous_claims = state.claims
-                previous_indicators = state.indicators
-                if self._apply_model_claim_extraction(state, payload):
-                    for indicator in state.indicators:
-                        own_claim = next((c for c in state.claims if c.claim_id == indicator.source_claim_id), None)
-                        if own_claim:
-                            indicator.source_claim_id = own_claim.source_span
-                    extracted.extend(state.claims)
-                    extracted_indicators.extend(state.indicators)
-                elif payload.get("claims") != []:
+        chunks = list(source_chunks(state))
+        checkpoint = extraction_checkpoint(state, chunks)
+        for chunk in chunks:
+            async for chunk_key, payload in extract_material_chunk(self, state, chunk, checkpoint):
+                if payload is not None:
+                    previous_claims = state.claims
+                    previous_indicators = state.indicators
+                    if self._apply_model_claim_extraction(state, payload):
+                        for indicator in state.indicators:
+                            own_claim = next((c for c in state.claims if c.claim_id == indicator.source_claim_id), None)
+                            if own_claim:
+                                indicator.source_claim_id = own_claim.source_span
+                        extracted.extend(state.claims)
+                        extracted_indicators.extend(state.indicators)
+                        checkpoint[chunk_key] = {"status": "completed", "payload": payload}
+                    elif payload.get("claims") == []:
+                        checkpoint[chunk_key] = {"status": "completed", "payload": payload}
+                    else:
+                        incomplete = True
+                        checkpoint.pop(chunk_key, None)
+                    state.claims = previous_claims
+                    state.indicators = previous_indicators
+                    await self._emit_stage_update(state)
+                else:
                     incomplete = True
-                state.claims = previous_claims
-                state.indicators = previous_indicators
-            else:
-                incomplete = True
             if self._model_unavailable:
                 break
         if not structured and extracted:
@@ -919,7 +925,12 @@ class ContentAssessmentGraph:
                         state.report_preferences.resolved_artifact_type = kind
                     missing = reviewed["missing_fields"]
         state.output_json["missing_fields"] = missing
-        if structured and not extracted:
+        failure = state.output_json.get("material_extraction_failure", {})
+        if failure.get("automatic_recovery_exhausted"):
+            cause = "达到模型输出上限" if failure.get("error_type") == "ModelOutputTruncated" else "返回格式不完整"
+            interrupt_generation(state, "claim_extraction", "claim_extraction",
+                f"研究要点提取{cause}，自动分段恢复仍未完成；原材料和已完成的提取结果已保留，请重试继续。")
+        elif structured and not extracted:
             interrupt_generation(state, "claim_extraction", "claim_extraction", "研究要点尚未完成语义分析，请重试；原材料已保留。")
         elif missing and recognition_failed:
             interrupt_generation(state, "claim_extraction", "claim_extraction", "材料识别中断，原文字和材料已保留，请重试。")
@@ -1742,12 +1753,15 @@ class ContentAssessmentGraph:
 
     async def _assessment_stage_with_analysis(self, state: ContentAssessmentState) -> None:
         self._assessment_stage(state)
+        from .source_recovery import recover_point_sources, source_limited
+        if not state.report_snapshot:
+            await recover_point_sources(self, state)
         from .point_evaluation import evaluate_points, reviewed_evaluations, saved_evaluations
         await evaluate_points(self, state)
         pending = [claim for claim in state.claims if not reviewed_evaluations(state, claim)]
         if pending and not state.report_snapshot:
             from .scholarly_report import selected_sources, point_title
-            unresolved = [claim for claim in pending if not selected_sources(state, claim)]
+            unresolved = [claim for claim in pending if not selected_sources(state, claim) and not source_limited(state, claim)]
             if unresolved:
                 interrupt_generation(state, "retrieval", "report_sources", "相关文献检索未完成，已有结果已保存，请重试检索。")
                 return
@@ -2051,6 +2065,7 @@ class ContentAssessmentGraph:
         system_prompt: str,
         user_prompt: str,
         max_tokens: int,
+        recoverable_output: bool = False,
     ) -> dict[str, object] | None:
         if not CONTENT_ASSESSMENT_LLM_ENABLED:
             self._record_model_usage(state, stage=stage, status="disabled")
@@ -2081,18 +2096,21 @@ class ContentAssessmentGraph:
                 max_tokens=max_tokens,
             )
         except (DeepSeekClientError, ValueError) as exc:
-            self._model_unavailable = True
             metrics = getattr(exc, "metrics", None)
+            error_type = getattr(metrics, "error_type", None) or type(exc).__name__
+            can_recover = recoverable_output and error_type in RECOVERABLE_OUTPUT_ERRORS
+            self._model_unavailable = not can_recover
             if getattr(metrics, "status_code", None) in {401, 402, 403}:
                 self._model_block_reason = getattr(metrics, "error_type", None) or "model_authorization_failed"
             self._record_model_response(state, stage, None, metrics, type(exc).__name__)
-            self._finish_model_process_step(model_step, "模型调用失败，已继续按规则处理。", failed=True)
-            logger.warning("创新性评估模型阶段降级 stage=%s error=%s", stage, type(exc).__name__)
+            summary = "正在分段重新提取研究要点。" if can_recover else "模型调用失败，已继续按规则处理。"
+            self._finish_model_process_step(model_step, summary, failed=True)
+            logger.warning("创新性评估模型阶段异常 stage=%s error=%s recoverable=%s", stage, error_type, can_recover)
             self._record_model_usage(
                 state,
                 stage=stage,
-                status="fallback",
-                reason=type(exc).__name__,
+                status="retrying" if can_recover else "fallback",
+                reason=error_type,
             )
             return None
         except Exception as exc:  # Keep task availability independent from a model outage.
@@ -2139,6 +2157,11 @@ class ContentAssessmentGraph:
             http_status=getattr(metrics, "status_code", None),
             duration_ms=getattr(metrics, "done_ms", None),
             raw_content_preview=str(getattr(metrics, "raw_content_preview", ""))[:1600]))
+        rows[-1].update(
+            error_type=getattr(metrics, "error_type", None),
+            error_message=str(getattr(metrics, "error", "") or "")[:240],
+            max_tokens=getattr(metrics, "max_tokens", None),
+        )
         del rows[:-100]
 
     @staticmethod
@@ -3717,12 +3740,29 @@ class ContentAssessmentGraph:
         if state.report_snapshot is not None:
             return
         from .scholarly_report import draft, selected_sources, publication_gaps, point_title
-        unresolved = [claim for claim in state.claims if not selected_sources(state, claim)]
+        from .source_recovery import recover_point_sources
+        unresolved = await recover_point_sources(self, state)
         if unresolved:
             interrupt_generation(state, "retrieval", "report_sources", "相关文献检索未完成，已有结果已保存，请重试检索。")
             return
         await draft(self, state)
         gaps = publication_gaps(state)
+        # Retrying a whole task for one rejected/empty chapter discards the
+        # useful distinction between a local writing defect and a service
+        # outage. draft() reuses accepted chapters and requests only gaps.
+        for attempt in range(2):
+            missing_synthesis = [key for key in ("scholarly_summary", "scholarly_conclusion")
+                                 if not state.output_json.get(key)]
+            if not gaps and not missing_synthesis:
+                break
+            if self._model_block_reason:
+                break
+            state.output_json.setdefault("report_drafting_recoveries", []).append({
+                "attempt": attempt + 1, "point_gaps": gaps, "synthesis_gaps": missing_synthesis,
+            })
+            await self._emit_stage_update(state)
+            await draft(self, state)
+            gaps = publication_gaps(state)
         if not state.output_json.get("scholarly_summary"):
             gaps = [*gaps, "总体研究结论"]
         if not state.output_json.get("scholarly_conclusion"):
@@ -3754,6 +3794,16 @@ class ContentAssessmentGraph:
 
     def _report(self, state: ContentAssessmentState) -> None:
         self._resolve_report_preferences(state)
+        from .source_recovery import source_limited
+        limited_points = [claim.claim_id for claim in state.claims if source_limited(state, claim)]
+        if limited_points:
+            state.quality_gate.report_eligibility = "exploratory"
+            state.output_json["report_evidence_limitations"] = {
+                "claim_ids": limited_points,
+                "message": "部分要点经补充检索后仍缺少直接可比文献，相关内容仅作材料说明，不据此判定原创或领先。",
+            }
+        else:
+            state.output_json.pop("report_evidence_limitations", None)
         formal = state.quality_gate.report_eligibility == "formal"
         report_type = "正式评估报告" if formal else "探索性评估报告"
         previous_report_version = state.versions.report_version

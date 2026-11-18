@@ -1,8 +1,8 @@
 <template>
   <article :class="['research-literature-card', { 'research-literature-card--row': layout === 'row' }]">
     <div v-if="layout !== 'row'" class="research-literature-card__meta"><span><b v-if="item.year" class="research-literature-card__year">{{ item.year }}</b><template v-if="venue"><span v-if="item.year"> · </span>{{ venue }}</template></span><a v-if="url" :href="url" target="_blank" rel="noopener noreferrer" class="research-literature-card__source">文献详情 <span aria-hidden="true">↗</span></a></div>
-    <h5><a v-if="url" :href="url" target="_blank" rel="noopener noreferrer">{{ title }}</a><span v-else>{{ title }}</span></h5>
-    <div v-if="layout === 'row'" class="research-literature-card__row-meta"><b v-if="item.year" class="research-literature-card__year">{{ item.year }}</b><span v-if="authors">{{ authors }}</span><span v-if="venue">{{ venue }}</span><span class="research-literature-card__scope">{{ evidenceStatus }}</span><button type="button" class="research-literature-card__toggle" :aria-expanded="expanded" :aria-controls="detailId" @click="expanded = !expanded">{{ toggleLabel }}<span class="material-icons-outlined research-literature-card__chevron" aria-hidden="true">expand_more</span></button></div>
+    <h5><span v-if="citationNumber" class="literature-number">[{{ citationNumber }}] </span><a v-if="url" :href="url" target="_blank" rel="noopener noreferrer">{{ title }}</a><span v-else>{{ title }}</span></h5>
+    <div v-if="layout === 'row'" class="research-literature-card__row-meta"><b v-if="item.year" class="research-literature-card__year">{{ item.year }}</b><span v-if="authors">{{ authors }}</span><span v-if="venue">{{ venue }}</span><span v-if="evidenceStatus !== '摘要'" class="research-literature-card__scope">{{ evidenceStatus }}</span><button type="button" class="research-literature-card__toggle" :aria-expanded="expanded" :aria-controls="detailId" @click="expanded = !expanded">{{ toggleLabel }}<span class="material-icons-outlined research-literature-card__chevron" aria-hidden="true">expand_more</span></button></div>
     <p v-if="authors && layout !== 'row'" class="research-literature-card__authors">{{ authors }}</p>
     <div v-if="layout !== 'row'" class="research-literature-card__context"><span class="research-literature-card__scope">{{ evidenceStatus }}</span><span v-if="disciplines.length">{{ disciplines.join('、') }}</span></div>
     <button v-if="layout !== 'row'" type="button" class="research-literature-card__toggle research-literature-card__standalone-toggle" :aria-expanded="expanded" :aria-controls="detailId" @click="expanded = !expanded">{{ toggleLabel }}<span class="material-icons-outlined research-literature-card__chevron" aria-hidden="true">expand_more</span></button>
@@ -16,15 +16,15 @@
 <script setup lang="ts">
 import { computed, ref, useId } from 'vue'
 import { resolveEvidenceUrl } from '../services/evidenceLinks'
-import { bibliographyText, chunkLocation, readableLiteratureChunks, literatureEvidenceStatus, type LiteratureEvidence, type LiteratureChunk } from '../services/literaturePresentation'
-const props = withDefaults(defineProps<{ item: LiteratureEvidence; chunks?: LiteratureChunk[]; layout?: 'card' | 'row' }>(), { layout: 'card' })
+import { bibliographyText, literatureAuthors, chunkLocation, readableLiteratureChunks, literatureEvidenceStatus, type LiteratureEvidence, type LiteratureChunk } from '../services/literaturePresentation'
+const props = withDefaults(defineProps<{ item: LiteratureEvidence; chunks?: LiteratureChunk[]; layout?: 'card' | 'row'; citationNumber?: number }>(), { layout: 'card' })
 const expanded = ref(false)
 const detailId = useId()
 const toggleLabel = computed(() => `${expanded.value ? '收起' : '查看'}${props.item.abstract || props.item.excerpt ? '摘要' : '题录'}`)
 const url = computed(() => resolveEvidenceUrl(props.item))
 const title = computed(() => bibliographyText(props.item.title))
 const venue = computed(() => ['literature', 'unknown'].includes((props.item.venue || '').toLowerCase()) ? '' : bibliographyText(props.item.venue))
-const authors = computed(() => (props.item.authors || []).slice(0, 3).join('、'))
+const authors = computed(() => literatureAuthors(props.item.authors))
 const disciplines = computed<string[]>(() => props.item.discipline_tags || [])
 const readableChunks = computed(() => readableLiteratureChunks(props.item, props.chunks || []))
 const evidenceStatus = computed(() => literatureEvidenceStatus(props.item, props.chunks || []))

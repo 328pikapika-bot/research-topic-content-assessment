@@ -131,6 +131,7 @@ class DocumentRecord(BaseModel):
     mime_type: str = ""
     content_hash: str = ""
     status: Literal["parsed", "failed", "unavailable", "pending"] = "pending"
+    summary: str = ""
     excerpt: str = ""
     parse_warnings: list[str] = Field(default_factory=list)
 
@@ -141,6 +142,7 @@ class InputProfile(BaseModel):
     research_object: str = ""
     method_paradigm: str = ""
     application_scenario: str = ""
+    material_summary: str = ""
 
     desired_output: str = "形成可验证的研究选题与实施建议"
     time_range: list[int] = Field(default_factory=list)

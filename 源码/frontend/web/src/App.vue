@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--detail': ['task-running', 'task-detail', 'topic-task-running', 'topic-task-detail'].includes(route) }">
     <AppSidebar
       :active-agent="activeAgent"
       :variant="route === 'home' ? 'home' : 'default'"
@@ -95,7 +95,7 @@ const restorableRoutes = new Set(['tasks', 'task-running', 'task-detail', 'topic
 const workspaceContext = computed(() => {
   if (route.value === 'tasks') return '历史任务'
   if (route.value === 'task-running') return '任务执行'
-  if (route.value === 'task-detail') return '任务详情'
+  if (route.value === 'task-detail') return selectedTaskId.value.startsWith('public-case:') ? '案例详情' : '任务详情'
   if (route.value === 'topic-task-running') return '选题任务执行'
   if (route.value === 'topic-task-detail') return '选题任务详情'
   return getAgent(activeAgent.value)?.name || '科研智能服务工作台 / 新建对话'
@@ -136,6 +136,7 @@ function onWorkspaceBack() {
   onNavigate('home')
 }
 function onWorkspaceCommand(type: 'clarify' | 'continue' | 'retry' | 'stop' | 'download') {
+  if (selectedTaskId.value.startsWith('public-case:') && type !== 'download') return
   workspaceCommand.value = { type, key: Date.now() }
 }
 function onTaskWorkspaceMeta(meta: { status: string; running: boolean }) { taskWorkspace.value = meta }

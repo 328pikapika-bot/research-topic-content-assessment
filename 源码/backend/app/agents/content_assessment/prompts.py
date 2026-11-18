@@ -11,7 +11,7 @@ import json
 from typing import Any
 
 
-PROMPT_VERSION = "innovation-assessment-prompts-v5-semantic-material-review"
+PROMPT_VERSION = "innovation-assessment-prompts-v6-bounded-material-extraction"
 RULE_VERSION = "rule-v5-grounded-reader-report"
 TEMPLATE_VERSION = "InnovationAssessmentReportV6"
 
@@ -102,6 +102,10 @@ def material_extraction_prompt(material: str) -> str:
         "逐段理解材料的研究对象、问题、方法、指标及其关系。结构化字段和案例材料也必须进行语义阅读，"
         "不能把字段拼接或规则命中当作要点分析。识别可独立比较的研究要点，合并重复表述；"
         "source_quote必须是足以定位该要点的连续原文，字段解释不得超出对应原文。"
+        "本次只分析当前材料片段，合并重复要点，claims最多6项、indicators最多8项、work_packages最多3项。"
+        "用简洁短句填写字段，不重复整段材料；原文引用只取定位和理解要点必需的连续句子，"
+        "保留关键数值、单位、比较条件和限定语。没有可比较研究要点时claims返回空数组。"
+        "优先保证JSON结构完整闭合，不输出长篇解释或重复背景。"
         "缺失字段使用空字符串或空数组，不输出未在材料中出现的事实。\n"
         f"JSON 契约：{_json_contract(contract)}\n\n<assessment_material>\n{material[:24000]}\n</assessment_material>"
     )

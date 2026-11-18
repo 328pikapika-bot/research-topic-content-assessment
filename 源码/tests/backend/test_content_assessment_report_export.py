@@ -141,7 +141,7 @@ def test_word_export_contains_report_sections_and_charts(tmp_path: Path) -> None
         node.get("{http://schemas.openxmlformats.org/wordprocessingml/2006/main}firstLine")
         for node in root.findall(".//w:body/w:p/w:pPr/w:ind", ns)
     ]
-    assert "420" in first_line_values
+    assert "480" in first_line_values
     assert body.count("<w:drawing") >= 1
 
 
@@ -160,9 +160,9 @@ def test_all_exports_use_reader_title_and_hide_machine_trace_from_body() -> None
     markdown, markdown_name = build_markdown(state)
     html, html_name = build_html(state)
 
-    assert markdown_name == "器官芯片药敏研究方案内容评估报告.md"
-    assert html_name == "器官芯片药敏研究方案内容评估报告.html"
-    assert markdown.startswith("# 器官芯片药敏研究方案内容评估报告")
+    assert markdown_name == "器官芯片药敏研究方案_探索性评估报告.md"
+    assert html_name == "器官芯片药敏研究方案_探索性评估报告.html"
+    assert markdown.startswith("# 器官芯片药敏研究方案_探索性评估报告")
     assert "report-test-002" in markdown
     assert "report-test-002" in html
     assert "章节生成内容" not in markdown

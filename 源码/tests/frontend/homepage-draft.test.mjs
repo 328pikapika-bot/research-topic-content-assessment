@@ -5,7 +5,12 @@ import ts from '../../frontend/web/node_modules/typescript/lib/typescript.js'
 
 async function loadService(name) {
   const source = await readFile(new URL(`../../frontend/web/src/services/${name}.ts`, import.meta.url), 'utf8')
-  const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
+  let compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
+  if (name === 'homepageDraft') {
+    const catalog = JSON.parse(await readFile(new URL('../../frontend/web/src/services/homepageCases.json', import.meta.url), 'utf8'))
+    const moduleUrl = `data:text/javascript;base64,${Buffer.from(`export default ${JSON.stringify(catalog)}`).toString('base64')}`
+    compiled = compiled.replaceAll("'./homepageCases.json'", `'${moduleUrl}'`)
+  }
   return import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`)
 }
 const { NINE_FIELDS, emptyNineDraft, serializeNineDraft, mergeNineDraft, missingNineFields, topicYearRange, PUBLIC_CASES, TOPIC_CASES, ASSESSMENT_CASES } = await loadService('homepageDraft')
@@ -67,11 +72,12 @@ test('assessment cases contain complete labelled source material instead of inje
   assert.equal(new Set(ASSESSMENT_CASES.map(sample => sample.scenarioId)).size, 6)
 })
 
-test('structured 429 displays running and queued separately and retains agent', async () => {
+test('structured 429 displays occupied slots and retains agent without suggesting a queue', async () => {
   const error = await readApiError(new Response(JSON.stringify({ detail: { code: 'rate_limit_exceeded', message: '额度不足', agent: 'assessment', running: 3, queued: 2, limit: 5 } }), { status: 429 }))
   assert.ok(error instanceof ApiError)
   assert.equal(error.status, 429)
   assert.equal(error.detail.agent, 'assessment')
-  assert.match(error.message, /3/)
-  assert.match(error.message, /2/)
+  assert.match(error.message, /占用 3 个任务名额/)
+  assert.match(error.message, /上限 5 个/)
+  assert.doesNotMatch(error.message, /排队/)
 })

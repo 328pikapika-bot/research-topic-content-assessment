@@ -17,10 +17,10 @@ from typing import Any
 
 from app.agents.topic_selection.schemas import TopicSelectionState, TopicReportPlan
 from app.agents.topic_selection.presentation import reader_report
-from app.common.retrieval.links import evidence_url
+from app.common.retrieval.links import evidence_url, bibliography_text
 
 
-TOPIC_CHART_RENDER_VERSION = "topic-chart-render-v16-readable-opportunities-" + TYPOGRAPHY_VERSION
+TOPIC_CHART_RENDER_VERSION = "topic-chart-render-v20-readable-markdown-references-" + TYPOGRAPHY_VERSION
 _WRITER_EXPORT_LOCK = threading.RLock()
 _WRITER_EXPORT_CACHE: OrderedDict[tuple[str, str, str, str], tuple[bytes, bytes]] = OrderedDict()
 
@@ -57,6 +57,8 @@ def _bounded_export_state(state: TopicSelectionState) -> TopicSelectionState:
         frozen.report_plan = TopicReportPlan.model_validate(frozen.report_snapshot.report_plan_snapshot)
         frozen.versions.report_version = frozen.report_plan.report_version
         frozen.versions.template_version = frozen.report_plan.template_version
+        _resolve_topic_identifiers(frozen)
+        _complete_cited_references(frozen)
         return frozen
     gaps = {item.gap_id: item for item in frozen.gaps}
     restored_titles: dict[str, str] = {}
@@ -95,7 +97,89 @@ def _bounded_export_state(state: TopicSelectionState) -> TopicSelectionState:
     for field in ("sections", "section_specs", "table_specs", "chart_specs", "chart_manifest", "executive_summary", "limitations", "cover_metadata"):
         setattr(frozen.report_plan, field, reader_report(getattr(frozen.report_plan, field)))
     frozen.report_plan.cover_metadata.setdefault("data_source", f"文献 {len(frozen.evidence_pool)} 篇")
+    _resolve_topic_identifiers(frozen)
+    _complete_cited_references(frozen)
     return frozen
+
+
+def _resolve_topic_identifiers(state: TopicSelectionState) -> None:
+    """Resolve only known graph IDs; scientific measures such as T80 are prose."""
+    names = {n.theme_id: n.display_label or n.label for n in state.theme_tree.nodes}
+    names.update({g.gap_id: g.label for g in state.gaps})
+    for chart in state.report_plan.chart_specs:
+        if chart.get('key') == 'theme_network':
+            names.update({n['theme_id']: n.get('display_label') or n.get('label') or '研究主题'
+                          for n in chart.get('data', {}).get('nodes', []) if n.get('theme_id')})
+    if not names:
+        return
+    pattern = re.compile(r'(?<![A-Za-z0-9])(' + '|'.join(re.escape(key) for key in sorted(names, key=len, reverse=True)) + r')(?![A-Za-z0-9])')
+    def resolve(value):
+        if isinstance(value, str):
+            return pattern.sub(lambda m: names[m[1]], value)
+        if isinstance(value, list):
+            return [resolve(item) for item in value]
+        if isinstance(value, dict):
+            if value.get('kind') == 'reference_list':
+                return value
+            return {key: item if key.endswith(('_id', '_ids')) or key in {'source', 'target', 'citation_map', 'citation_links', 'url', 'doi'} else resolve(item)
+                    for key, item in value.items()}
+        return value
+    for field in ('sections', 'section_specs', 'table_specs', 'chart_specs', 'executive_summary'):
+        setattr(state.report_plan, field, resolve(getattr(state.report_plan, field)))
+
+
+def _complete_cited_references(state: TopicSelectionState) -> None:
+    """Repair omitted bibliography rows in a render copy using frozen records."""
+    plan = state.report_plan
+    reference_section = next((section for section in plan.sections if section.get('key') == 'references'), None)
+    if reference_section is None:
+        return
+    tables = {table.get('key'): table for table in plan.table_specs}
+    visible = []
+    for section in plan.sections:
+        spec = _section_spec(state, str(section.get('key')))
+        rendered = set()
+        for block in _blocks(section, spec):
+            kind = block.get('kind')
+            if kind == 'reference_list':
+                continue
+            if kind == 'table_ref':
+                rendered.add(block.get('key'))
+                visible.append(tables.get(block.get('key'), {}).get('rows', []))
+            else:
+                visible.append(block)
+        visible.extend(tables.get(key, {}).get('rows', []) for key in spec.get('table_keys', []) if key not in rendered)
+
+    def text_values(value):
+        if isinstance(value, str):
+            yield value
+        elif isinstance(value, list):
+            for item in value:
+                yield from text_values(item)
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                if key not in {'evidence_ids', 'source_ids', 'content'}:
+                    yield from text_values(item)
+
+    cited = {int(number) for text in text_values(visible) for number in re.findall(r'\[(\d+)\]', text)}
+    block = next((block for block in reference_section.get('blocks', []) if block.get('kind') == 'reference_list'), None)
+    existing = {item.get('number') for item in (block or {}).get('items', [])}
+    records = {item.evidence_id: item for item in state.evidence_pool}
+    additions = []
+    for eid, number in plan.citation_map.items():
+        item = records.get(eid)
+        if number not in cited or number in existing or item is None:
+            continue
+        additions.append({'number': number, 'evidence_id': eid, 'title': bibliography_text(item.title),
+                          'authors': '、'.join(bibliography_text(author) for author in item.authors),
+                          'year': item.year, 'venue': bibliography_text(item.venue), 'doi': item.doi,
+                          'paper_id': item.paper_id, 'url': plan.citation_links.get(eid) or evidence_url(item)})
+        existing.add(number)
+    if additions:
+        if block is None:
+            block = {'kind': 'reference_list', 'items': []}
+            reference_section.setdefault('blocks', []).append(block)
+        block['items'] = sorted([*block.get('items', []), *additions], key=lambda item: item.get('number', 0))
 
 
 def _blocks(section: dict[str, Any], spec: dict[str, Any] | None = None) -> list[dict[str, Any]]:
@@ -113,18 +197,21 @@ def _section_spec(state: TopicSelectionState, key: str) -> dict[str, Any]:
 def _reference_lines(block: dict[str, Any]) -> list[str]:
     lines = []
     for item in block.get("items") or []:
-        title = str(item.get('title', '')).replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]')
+        title = bibliography_text(item.get('title', '')).replace('\\', '\\\\').replace('[', '\\[').replace(']', '\\]')
         url = evidence_url(item)
-        title = f"[{title}](<{url}>)" if url else title
-        detail = f"{title}。{item.get('authors', '')} {item.get('venue') or item.get('source') or 'NSTL'}，{item.get('year') or '年份未提供'}。"
+        title = f"[{title}]({url})" if url else title
+        authors = bibliography_text(item.get('authors', ''))
+        venue = bibliography_text(item.get('venue') or item.get('source') or 'NSTL')
+        detail = f"{title}。{authors} {venue}，{item.get('year') or '年份未提供'}。"
         detail += _reference_identifier(item)
-        lines.append(f"<a id=\"ref-{item.get('number', '')}\"></a> [{item.get('number', '')}] {detail}")
+        number = item.get('number', '')
+        lines.extend([f'<a id="ref-{number}"></a>', '', f'[{number}] {detail}', ''])
     return lines
 
 
 def _reference_identifier(item: dict[str, Any]) -> str:
     if item.get("doi"):
-        return f" DOI: {item['doi']}。"
+        return f" DOI: {bibliography_text(item['doi'])}。"
     # NSTL identifiers are retained in the frozen evidence record and are
     # used to construct a detail-page link when necessary.  They are an
     # internal trace field, so keep them out of the reader-facing bibliography
@@ -133,26 +220,29 @@ def _reference_identifier(item: dict[str, Any]) -> str:
 
 
 _INTERNAL_EVIDENCE_RE = re.compile(r"(?<![A-Za-z0-9])(?:证据\s*)?E-[A-Za-z0-9_-]{6,}(?![A-Za-z0-9])")
-_INTERNAL_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])(?:CAND-[A-Za-z0-9_-]+|M-INPUT|T\d+|G\d+)(?![A-Za-z0-9])")
+_INTERNAL_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])(?:CAND-[A-Za-z0-9_-]+|M-INPUT)(?![A-Za-z0-9])")
 
 
 def _reader_visible(value: Any) -> str:
     """Remove pipeline identifiers from reader-facing text while preserving citations."""
-    text = str(value or "")
+    text = bibliography_text(value)
     text = _INTERNAL_EVIDENCE_RE.sub("相关研究", text)
     text = _INTERNAL_TOKEN_RE.sub("", text)
+    text = re.sub(r"\[\s*\]|（[\s,，、;；]*）|\([\s,，、;；]*\)", "", text)
     text = re.sub(r"\s{2,}", " ", text)
+    text = re.sub(r"(\[\d+\])\s+(?=\[\d+\])", r"\1", text)
     text = re.sub(r"[：:，；、]\s*([。；])", r"\1", text)
     return text.strip()
 
 
 def _md_text(value: Any) -> str:
-    return re.sub(r"\[(\d+)\]", r"[\1](#ref-\1)", _reader_visible(value))
+    from app.services.report_markdown import superscript_citations
+    return superscript_citations(_reader_visible(value))
 
 
 def _html_text(value: Any) -> str:
     escaped = html.escape(_reader_visible(value))
-    escaped = re.sub(r"\[(\d+)\]", r"<a href='#ref-\1'>[\1]</a>", escaped)
+    escaped = re.sub(r"\[(\d+)\]", r'<a class="citation" href="#ref-\1">[\1]</a>', escaped)
     return re.sub(r"(https://www\.nstl\.gov\.cn/paper_detail\.html\?id=[^\s；。，）)<>]+)", r"<a href='\1'>\1</a>", escaped).replace("\n", "<br>")
 
 
@@ -162,7 +252,7 @@ def _table_md(spec: dict[str, Any]) -> list[str]:
         return []
     lines = [f"### {spec.get('title', '')}", "| " + " | ".join(columns) + " |", "| " + " | ".join(["---"] * len(columns)) + " |"]
     for row in (spec.get("rows") or []):
-        lines.append("| " + " | ".join(_reader_visible(row.get(column, "")) if isinstance(row, dict) else "" for column in columns) + " |")
+        lines.append("| " + " | ".join(_md_text(row.get(column, "")) if isinstance(row, dict) else "" for column in columns) + " |")
     return lines + [""]
 
 
@@ -194,20 +284,20 @@ def _candidate_status_label(value: Any) -> str:
     }.get(str(value or ""), str(value or "待评估"))
 
 
-def _chart_md(spec: dict[str, Any]) -> list[str]:
+def _chart_md(spec: dict[str, Any], *, include_images: bool = False) -> list[str]:
     lines = []
     data = spec.get("data") or {}
     kind = spec.get("chart_type")
-    parts = _render_chart_parts(spec)
-    for index, content in enumerate(parts, 1):
-        suffix = f"（{index}）" if len(parts) > 1 else ""
-        lines += ["", f"![{_reader_visible(spec.get('title', '图表'))}{suffix}](data:image/png;base64,{base64.b64encode(content).decode('ascii')})", ""]
-        if suffix:
-            lines += [f"图 {spec.get('figure_number', '')}{suffix} {_reader_visible(spec.get('title', ''))}", ""]
     lines.append(f"图 {spec.get('figure_number', '')} {_reader_visible(spec.get('title', ''))}")
     lines.append(f"> {_reader_visible(spec.get('source_note') or ('来源：本次锁定证据池；数据快照：' + str(spec.get('data_snapshot_version', ''))))}")
     if spec.get("caption"):
         lines.append(f"> {_reader_visible(spec['caption'])}")
+    if include_images:
+        image_parts = _render_chart_parts(spec)
+        for image_index, content in enumerate(image_parts, start=1):
+            image = base64.b64encode(content).decode("ascii")
+            suffix = f"（{image_index}）" if len(image_parts) > 1 else ""
+            lines.extend(["", f"![图 {spec.get('figure_number', '')} {_reader_visible(spec.get('title', ''))}{suffix}](data:image/png;base64,{image})"])
     columns, rows = [], []
     if kind == "discipline" and isinstance(data, dict):
         columns = ["研究机会", "核心学科", "拓展学科", "可借鉴方法", "关联原因"]
@@ -219,14 +309,14 @@ def _chart_md(spec: dict[str, Any]) -> list[str]:
     elif kind in {"scatter", "bubble"} and isinstance(data, list):
         columns = ["空白编号", "竞争热度", "空白空间", "样本量", "篇均被引", "状态"]
         rows = [{"空白编号": f"研究方向{index + 1}", "竞争热度": row.get("x", ""), "空白空间": row.get("y", ""), "样本量": row.get("size", ""), "篇均被引": row.get("color", ""), "状态": _reader_visible(row.get("status", ""))} for index, row in enumerate(data)]
-    elif kind == "stacked_bar" and isinstance(data, dict):
+    elif kind in {"stacked_bar", "grouped_bar"} and isinstance(data, dict):
         columns = ["子方向", *[str(year) for year in data.get("years") or []]]
         rows = [{"子方向": _reader_visible(row.get("label", "")), **{str(year): value for year, value in zip(data.get("years") or [], row.get("values") or [])}} for row in data.get("series") or []]
     elif kind == "network" and isinstance(data, dict):
-        columns = ["主题", "研究边界"]
+        columns = ["主题", "研究边界", "关键词"]
         nodes = data.get("nodes") or []
         by_id = {str(row.get("theme_id")): _reader_visible(row.get("label") or "主题") for row in nodes}
-        rows = [{"主题": _reader_visible(row.get("label", "")), "研究边界": _reader_visible(row.get("boundary", ""))} for row in nodes]
+        rows = [{"主题": _reader_visible(row.get("display_label") or row.get("label", "")), "研究边界": _reader_visible(row.get("boundary", "")), "关键词": "、".join(row.get("seed_terms") or row.get("keywords") or [])} for row in nodes]
         lines.append(f"> 研究根节点：{_reader_visible(data.get('display_root') or data.get('root') or '未提供')}")
         lines.extend(f"> 关系：{by_id.get(str(edge.get('source')), '相关主题')} → {by_id.get(str(edge.get('target')), '相关主题')}；{_reader_visible(edge.get('relation', ''))}" for edge in data.get("edges") or [])
     else:
@@ -239,7 +329,7 @@ def _chart_md(spec: dict[str, Any]) -> list[str]:
     return lines + [""]
 
 
-def _structured_markdown(state: TopicSelectionState) -> str:
+def _structured_markdown(state: TopicSelectionState, *, include_images: bool = False) -> str:
     lines = [f"# {_title(state)}", "", f"生成方式：{state.report_plan.cover_metadata.get('generation_method', '智能选题九阶段流程')}", f"数据源：{state.report_plan.cover_metadata.get('data_source', '')}", f"样本量：{state.report_plan.cover_metadata.get('sample_size', len(state.evidence_pool))}", f"生成日期：{state.report_plan.cover_metadata.get('generated_at', '')}", f"报告版本：{state.versions.report_version}", f"模板版本：{state.report_plan.template_version or state.versions.template_version}", f"证据截止时间：{state.report_plan.cover_metadata.get('evidence_cutoff_at', '未指定')}", ""]
     if state.report_plan.template_version == "TopicReportV7":
         lines = [f"# {_title(state)}", "", f"数据源：{state.report_plan.cover_metadata.get('data_source', '')}",
@@ -266,10 +356,15 @@ def _structured_markdown(state: TopicSelectionState) -> str:
             elif kind == "figure_ref":
                 rendered_refs.add(str(block.get("key")))
                 chart = charts.get(str(block.get("key")))
-                if chart: lines.extend(_chart_md(chart))
+                if chart: lines.extend(_chart_md(chart, include_images=include_images))
             elif kind == "candidate_detail":
                 lines.extend([f"### 候选题 {block.get('index', '')}：{block.get('title', '')}", "", *([f"状态：{_candidate_status_label(block.get('status'))}", ""] if block.get("show_status", True) else [])])
-                for field in block.get("fields") or []: lines.extend([f"**{field.get('label', '')}**：{_md_text(field.get('value', ''))}", ""])
+                for field in block.get("fields") or []:
+                    label = field.get('label', '')
+                    if label == '研究内容':
+                        lines.extend([f"**{label}**", "", *[line + '  ' for line in _md_text(field.get('value', '')).splitlines()], ""])
+                    else:
+                        lines.extend([f"**{label}**：{_md_text(field.get('value', ''))}", ""])
             elif kind == "reference_list":
                 lines.extend(_reference_lines(block)); lines.append("")
         for table_key in spec.get("table_keys", []):
@@ -277,13 +372,20 @@ def _structured_markdown(state: TopicSelectionState) -> str:
                 lines.extend(_table_md(tables.get(str(table_key), {})))
         for chart_key in spec.get("chart_keys", []):
             if chart_key not in rendered_refs and charts.get(str(chart_key)):
-                lines.extend(_chart_md(charts[str(chart_key)]))
+                lines.extend(_chart_md(charts[str(chart_key)], include_images=include_images))
     return "\n".join(lines)
 
 
 def build_topic_markdown(state: TopicSelectionState) -> tuple[bytes, str]:
     render_state = _bounded_export_state(state)
     return _structured_markdown(render_state).encode("utf-8"), f"{_safe_filename(_title(render_state))}.md"
+
+
+def build_topic_markdown_bundle(state: TopicSelectionState) -> tuple[bytes, str]:
+    render_state = _bounded_export_state(state)
+    markdown = _structured_markdown(render_state, include_images=True)
+    from app.services.report_markdown import package_markdown
+    return package_markdown(markdown, _title(render_state))
 
 
 def _table_widths(spec: dict[str, Any], total: float = 6.8) -> list[float]:
@@ -375,7 +477,8 @@ def _html_block(block: dict[str, Any], tables: dict[str, dict[str, Any]], charts
         return _html_chart(chart) if chart else ""
     if kind == "candidate_detail":
         fields = "".join(
-            f"<p><b>{html.escape(str(field.get('label', '')))}：</b>{_html_text(field.get('value', ''))}</p>"
+            (f"<p><b>研究内容</b></p><p>{_html_text(field.get('value', ''))}</p>" if field.get('label') == '研究内容'
+             else f"<p><b>{html.escape(str(field.get('label', '')))}：</b>{_html_text(field.get('value', ''))}</p>")
             for field in (block.get("fields") or [])
         )
         status = html.escape(_candidate_status_label(block.get("status"))) if block.get("show_status", True) else ""
@@ -490,7 +593,7 @@ def _chart_has_data(spec: dict[str, Any]) -> bool:
     if chart_type == "line":
         rows = data.get("nstl") or [] if isinstance(data, dict) else []
         return len({item.get("year") for item in rows if item.get("year")}) >= max(2, minimum) and any(_finite(item.get("count")) > 0 for item in rows)
-    if chart_type == "stacked_bar":
+    if chart_type in {"stacked_bar", "grouped_bar"}:
         if not isinstance(data, dict) or len(data.get("years") or []) < max(2, minimum):
             return False
         return any(any(_finite(value) > 0 for value in row.get("values") or []) for row in data.get("series") or [])
@@ -626,7 +729,7 @@ def _render_chart_png(spec: dict[str, Any]) -> bytes | None:
         draw.line(points, fill=blue, width=6, joint="curve")
         for x, y in points:
             draw.ellipse((x - 9, y - 9, x + 9, y + 9), fill=blue, outline="white", width=3)
-    elif chart_type == "stacked_bar":
+    elif chart_type in {"stacked_bar", "grouped_bar"}:
         chart_years = list(data.get("years") or [])
         series = list(data.get("series") or [])
         if len(chart_years) < 2 or not series:
@@ -641,7 +744,7 @@ def _render_chart_png(spec: dict[str, Any]) -> bytes | None:
         right = 1190
         bottom = min(735, legend_height - 165)
         totals = [sum(_finite(row.get("values", [])[index]) if index < len(row.get("values") or []) else 0 for row in series) for index in range(len(chart_years))]
-        maximum = max(totals) or 1
+        maximum = (max((_finite(v) for row in series for v in row.get("values", [])), default=0) if chart_type == "grouped_bar" else max(totals)) or 1
         axis("年份", "文献数")
         for tick in range(5):
             value = maximum * tick / 4
@@ -650,7 +753,7 @@ def _render_chart_png(spec: dict[str, Any]) -> bytes | None:
             draw.text((left - 16, y), f"{value:g}", fill=muted, font=tiny, anchor="rm")
         colors = (blue, teal, orange, purple, "#C0504D", "#7F8C8D", "#5B9BD5", "#70AD47")
         band = (right - left) / max(1, len(chart_years))
-        width = min(86, band * .62)
+        width = min(86, band * .62) / (len(series) if chart_type == "grouped_bar" else 1)
         for year_index, year in enumerate(chart_years):
             x = left + (year_index + .5) * band
             cursor = bottom
@@ -659,8 +762,10 @@ def _render_chart_png(spec: dict[str, Any]) -> bytes | None:
                 value = _finite(values[year_index]) if year_index < len(values) else 0
                 height = (bottom - top) * value / maximum
                 if height > 0:
-                    draw.rectangle((x - width / 2, cursor - height, x + width / 2, cursor), fill=colors[series_index % len(colors)])
-                    cursor -= height
+                    bar_x = x + (series_index - (len(series) - 1) / 2) * width if chart_type == "grouped_bar" else x
+                    draw.rectangle((bar_x - width / 2, cursor - height, bar_x + width / 2, cursor), fill=colors[series_index % len(colors)])
+                    if chart_type != "grouped_bar":
+                        cursor -= height
             draw.text((x, bottom + 20), str(year)[-4:], fill=muted, font=tiny, anchor="ma")
         legend_x, legend_y = 1300, 145
         draw.text((legend_x, legend_y - 38), "研究子方向", fill=navy, font=small)
@@ -859,7 +964,6 @@ def _build_topic_docx_source(state: TopicSelectionState) -> tuple[bytes, str]:
         run = OxmlElement("w:r"); props = OxmlElement("w:rPr")
         hyperlink_style = OxmlElement("w:rStyle"); hyperlink_style.set(qn("w:val"), "Hyperlink"); props.append(hyperlink_style)
         color = OxmlElement("w:color"); color.set(qn("w:val"), "2F75B5"); props.append(color)
-        underline = OxmlElement("w:u"); underline.set(qn("w:val"), "single"); props.append(underline)
         run.append(props); node = OxmlElement("w:t"); node.text = text; run.append(node); hyperlink.append(run); paragraph._p.append(hyperlink)
 
     bookmark_id = 0
@@ -896,10 +1000,9 @@ def _build_topic_docx_source(state: TopicSelectionState) -> tuple[bytes, str]:
     document.styles["Heading 2"].paragraph_format.space_before = Pt(5)
     document.styles["Heading 2"].paragraph_format.space_after = Pt(2)
     document.styles["Heading 2"].paragraph_format.keep_with_next = True
-    header = section.header.paragraphs[0]; header.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    header_run = header.add_run("科技文献智能服务平台｜智能选题正式报告"); header_run.font.size = Pt(8); _set_brand(header_run)
+    section.header.paragraphs[0].clear()
     footer = section.footer.paragraphs[0]; footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    footer_run = footer.add_run("智能选题正式报告 · "); footer_run.font.size = Pt(8); _set_black(footer_run)
+    footer.clear()
     field = OxmlElement("w:fldSimple"); field.set(qn("w:instr"), "PAGE"); footer._p.append(field)
 
     def add_text(paragraph: Any, text: str, *, bold: bool = False, color: RGBColor | None = None) -> None:
@@ -1055,6 +1158,10 @@ def _build_topic_docx_source(state: TopicSelectionState) -> tuple[bytes, str]:
             # reserving its actual height, so Writer clips it at the page top.
             picture.paragraph_format.line_spacing = 1.0
             graph_width = 6.0 if chart.get("chart_version") in {"chart-v10", "chart-v11"} and chart.get("key") == "discipline_network" else 4.8
+            if chart.get('key') in {'theme_network', 'trend_comparison'}:
+                from PIL import Image
+                with Image.open(path) as image:
+                    graph_width = min(6.6, 7.0 * image.width / image.height)
             picture.add_run().add_picture(str(path), width=Inches(graph_width))
             suffix = f"（{part_index}）" if len(paths[chart["key"]]) > 1 else ""
             caption = cell.add_paragraph(f"图 {chart.get('figure_number', '')}{suffix} {_reader_visible(chart.get('title', ''))}"); caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1091,6 +1198,19 @@ def _build_topic_docx_source(state: TopicSelectionState) -> tuple[bytes, str]:
                 status.paragraph_format.keep_with_next = True
                 for run in status.runs: run.font.size = Pt(9); _set_black(run)
             for field in block.get("fields") or []:
+                if field.get('label') == '研究内容':
+                    paragraph = document.add_paragraph()
+                    paragraph.paragraph_format.keep_with_next = True
+                    paragraph.paragraph_format.space_after = Pt(2)
+                    label = paragraph.add_run('研究内容'); label.bold = True; _set_brand(label)
+                    lines = str(field.get('value') or '').splitlines()
+                    for i, line in enumerate(lines):
+                        paragraph = document.add_paragraph()
+                        paragraph.paragraph_format.first_line_indent = Inches(0)
+                        paragraph.paragraph_format.space_after = Pt(2)
+                        paragraph.paragraph_format.keep_with_next = i < len(lines) - 1
+                        add_text(paragraph, line)
+                    continue
                 paragraph = document.add_paragraph(); paragraph.paragraph_format.first_line_indent = Inches(0.2); paragraph.paragraph_format.space_after = Pt(3)
                 label = paragraph.add_run(f"{_reader_visible(field.get('label', ''))}："); label.bold = True; _set_brand(label)
                 add_text(paragraph, str(field.get("value") or ""))
@@ -1100,10 +1220,7 @@ def _build_topic_docx_source(state: TopicSelectionState) -> tuple[bytes, str]:
                 paragraph.paragraph_format.line_spacing = 1.08
                 bookmark(paragraph, f"ref_{item.get('number', '')}")
                 url = evidence_url(item)
-                if url:
-                    add_hyperlink(paragraph, f"[{item.get('number', '')}] ", url)
-                else:
-                    paragraph.add_run(f"[{item.get('number', '')}] ")
+                paragraph.add_run(f"[{item.get('number', '')}] ")
                 if url:
                     add_hyperlink(paragraph, str(item.get('title', '')), url)
                 else:

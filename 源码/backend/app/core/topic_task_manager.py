@@ -116,6 +116,8 @@ class TopicTaskManager:
 
     async def _run_pipeline(self, task_id, user_scope, initial_state):
         state = initial_state.model_copy(deep=True)
+        from app.agents.topic_selection.scholarly_report import compact_repair_history
+        compact_repair_history(state)
         state.user_scope, state.worker_id = user_scope, self._owner
         try:
             latest = await get_task_history_repo().get(task_id, user_scope)
@@ -133,7 +135,14 @@ class TopicTaskManager:
             record.setdefault('pending_stages', [t.stage_key for t in state.stage_trace if t.status != 'completed'])
             await self._persist(task_id, user_scope, state, 'running')
             service = TopicSelectionService()
-            state = await asyncio.wait_for(service.run(state, on_stage_update=lambda current: self._on_stage_progress(task_id, user_scope, current)), timeout=self.execution_window_seconds)
+            async def progress(current):
+                nonlocal state
+                # The pipeline may yield a new state object. Preserve the latest
+                # checkpoint when a later call times out or the worker restarts.
+                state = current.model_copy(deep=True)
+                await self._on_stage_progress(task_id, user_scope, state)
+
+            state = await asyncio.wait_for(service.run(state, on_stage_update=progress), timeout=self.execution_window_seconds)
             if state.confirmation.needed:
                 await self._persist(task_id, user_scope, state, 'awaiting_confirmation')
             elif state.report_plan.publication_status != 'published':

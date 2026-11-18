@@ -867,9 +867,12 @@ def _add_external_hyperlink(paragraph: Any, text: str, url: str, *, size: float 
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     part = paragraph.part
-    relationship = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
     node = OxmlElement("w:hyperlink")
-    node.set(qn("r:id"), relationship)
+    if url.startswith("#"):
+        node.set(qn("w:anchor"), url[1:])
+    else:
+        relationship = part.relate_to(url, "http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink", is_external=True)
+        node.set(qn("r:id"), relationship)
     run = OxmlElement("w:r")
     props = OxmlElement("w:rPr")
     # LibreOffice 7.x only carries external OOXML hyperlinks into PDF when
@@ -884,8 +887,6 @@ def _add_external_hyperlink(paragraph: Any, text: str, url: str, *, size: float 
     fonts.set(qn("w:ascii"), "Liberation Serif"); fonts.set(qn("w:hAnsi"), "Liberation Serif"); fonts.set(qn("w:eastAsia"), _docx_cjk_font())
     font_size = OxmlElement("w:sz"); font_size.set(qn("w:val"), str(round(size * 2)))
     props.extend([fonts, font_size])
-    if re.fullmatch(r"\[\d+\]", text):
-        superscript = OxmlElement("w:vertAlign"); superscript.set(qn("w:val"), "superscript"); props.append(superscript)
     run.append(props)
     value = OxmlElement("w:t"); value.text = text
     run.append(value); node.append(run); paragraph._p.append(node)
@@ -1053,13 +1054,18 @@ def _configure(document: Any) -> None:
     update_fields.set(qn("w:val"), "true")
     section.header.paragraphs[0].clear()
     footer = section.footer.paragraphs[0]
-    footer.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _set_run(footer.add_run(""), size=9, color="666666")
     section.first_page_header.paragraphs[0].clear()
-    section.first_page_footer.paragraphs[0].clear()
+    first_footer = section.first_page_footer.paragraphs[0]
+    first_footer.clear()
     field = OxmlElement("w:fldSimple")
     field.set(qn("w:instr"), "PAGE")
     footer._p.append(field)
+    first_field = OxmlElement("w:fldSimple")
+    first_field.set(qn("w:instr"), "PAGE")
+    first_footer.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    first_footer._p.append(first_field)
     _set_run(footer.add_run(""), size=9, color="666666")
 
 
@@ -1295,6 +1301,8 @@ def _content_widths(column_count: int) -> list[int]:
 def _reference_table_widths(headers: list[str]) -> list[int]:
     """Give long narrative columns room instead of sizing every table by count."""
     layouts = {
+        ("检索主题", "来源", "时间范围", "纳入分析"): [4600, 1100, 1800, 1850],
+        ("评估要点", "代表文献", "可用定位", "正文位置"): [3000, 3000, 1800, 1550],
         ("主题", "检索式", "来源与年份范围", "候选／纳入", "筛选依据"): [1800, 3000, 2000, 950, 1700],
         ("评估要点", "判断", "来源", "证据位置", "正文位置"): [2300, 1100, 2700, 1000, 2350],
         ("指标", "材料值", "状态", "材料报告结果", "文献基线", "验证条件", "判断"): [1150, 850, 1000, 1600, 1600, 1600, 1750],
@@ -1369,10 +1377,31 @@ def _add_content_block(
 def _add_report_blocks(document: Any, spec: Any, *, citation_urls: dict[str, str], citation_numbers: dict[str, int], figure_renderer=None, max_nav_level=4) -> None:
     """Render immutable structured blocks while keeping legacy snapshots readable."""
     from app.agents.content_assessment.report_composition import block_text_with_sources
+    citation_urls = {str(number): f"#evidence_{number}" for number in citation_numbers.values()}
+    body_citation_urls = {} if spec.section_key == "references" else citation_urls
+    # Keep one bookmark per bibliography entry; title links remain external.
+    def mark_references(start):
+        if spec.section_key != "references":
+            return
+        from docx.oxml import OxmlElement
+        from docx.oxml.ns import qn
+        for paragraph in document.paragraphs[start:]:
+            text = "".join(paragraph._p.itertext())
+            match = re.match(r"\[(\d+)\]", text)
+            if match:
+                number = match[1]
+                begin = OxmlElement("w:bookmarkStart")
+                begin.set(qn("w:id"), str(10000 + int(number)))
+                begin.set(qn("w:name"), f"evidence_{number}")
+                end = OxmlElement("w:bookmarkEnd"); end.set(qn("w:id"), str(10000 + int(number)))
+                paragraph._p.insert(0, begin); paragraph._p.append(end)
+
     blocks = getattr(spec, "blocks", None) or []
     if not blocks:
+        start = len(document.paragraphs)
         for part in re.split(r"\n\s*\n", spec.content or "本章节暂无可用分析内容，已记录为待补证。"):
-            _add_content_block(document, _render_citations(part, citation_numbers), appendix=spec.is_appendix, table_size=10, citation_urls=citation_urls)
+            _add_content_block(document, _render_citations(part, citation_numbers), appendix=spec.is_appendix, table_size=10, citation_urls=body_citation_urls)
+        mark_references(start)
         return
     styles = {
         "execution": ("E9F7F5", "0D9488", "公开执行摘要"),
@@ -1380,6 +1409,7 @@ def _add_report_blocks(document: Any, spec: Any, *, citation_urls: dict[str, str
         "risk": ("FFF7E6", "C26A00", "风险"),
     }
     for item in blocks:
+        start = len(document.paragraphs)
         if item.kind == "figure":
             if figure_renderer:
                 figure_renderer(item.text)
@@ -1397,14 +1427,15 @@ def _add_report_blocks(document: Any, spec: Any, *, citation_urls: dict[str, str
             paragraph.paragraph_format.keep_with_next = True
         elif item.kind == "table":
             for part in re.split(r"\n\s*\n", text):
-                _add_content_block(document, part, appendix=spec.is_appendix, table_size=10, citation_urls=citation_urls)
+                _add_content_block(document, part, appendix=spec.is_appendix, table_size=10, citation_urls=body_citation_urls)
         elif item.kind == "callout":
             fill, color, label = styles.get(item.callout_style, styles["result"])
-            _callout(document, label, text, fill=fill, color=color, citation_urls=citation_urls)
+            _callout(document, label, text, fill=fill, color=color, citation_urls=body_citation_urls)
         else:
             for part in re.split(r"\n\s*\n", text):
                 _add_content_block(document, part, appendix=spec.is_appendix,
-                                   table_size=10, citation_urls=citation_urls)
+                                   table_size=10, citation_urls=body_citation_urls)
+        mark_references(start)
 
 
 def _chart_is_ready(data: dict[str, Any], key: str) -> bool:
@@ -1698,7 +1729,7 @@ def _build_canonical_docx(state: ContentAssessmentState) -> tuple[bytes, str]:
     plan = data["plan"]
     citations = state.report_snapshot.citation_numbers if state.report_snapshot else _citation_map(data["evidence"])
     from app.common.retrieval.links import citation_urls as resolve_citations
-    citation_urls = resolve_citations(data["evidence"], citations)
+    citation_urls = {str(number): f"#evidence_{number}" for number in citations.values()}
     if not state.report_snapshot.chart_manifest:
         prepare_chart_manifest(state)
     assets = build_report_chart_assets(state)
@@ -1722,8 +1753,6 @@ def _build_canonical_docx(state: ContentAssessmentState) -> tuple[bytes, str]:
             if entry["section_key"] == spec.section_key and entry["chart_key"] not in placed:
                 render_figure(entry["chart_key"])
     apply_report_typography(document)
-    # Apply after shared typography so the small, light running title is retained.
-    _running_header(document, data['title'])
     result = io.BytesIO()
     document.save(result)
     return result.getvalue(), f"{_safe_filename(data['title'])}.docx"

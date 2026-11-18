@@ -11,21 +11,20 @@
       <div class="evidence-grid">
         <article v-for="item in visibleEvidence" :key="item.id" :class="{ selected: evidenceId === item.id }" class="evidence-node">
           <small v-if="recordFor(item.id)?.year || item.number">{{ recordFor(item.id)?.year || '' }}{{ item.number ? ' · [' + item.number + ']' : '' }}</small>
-          <a v-if="sourceUrl(item.id)" :href="sourceUrl(item.id)" target="_blank" rel="noopener noreferrer">{{ item.label }}</a><strong v-else>{{ item.label }}</strong>
-          <span v-if="recordFor(item.id)?.authors?.length" class="authors">{{ recordFor(item.id)?.authors?.slice(0, 3).join('、') }}</span>
+          <a v-if="sourceUrl(item.id)" :href="sourceUrl(item.id)" target="_blank" rel="noopener noreferrer">{{ bibliographyText(item.label) }}</a><strong v-else>{{ bibliographyText(item.label) }}</strong>
+          <span v-if="recordFor(item.id)?.authors?.length" class="authors">{{ literatureAuthors(recordFor(item.id)?.authors) }}</span>
           <button type="button" class="source-toggle" :aria-expanded="evidenceId === item.id" @click="evidenceId = evidenceId === item.id ? '' : item.id">{{ evidenceId === item.id ? '收起关联内容' : '查看关联内容' }}</button>
+          <div v-if="evidenceId === item.id" class="source-detail"><p>{{ sourceDetail.sourceKind }}<span v-if="sourceDetail.location"> · {{ sourceDetail.location }}</span></p><blockquote v-if="sourceDetail.excerpt">{{ sourceDetail.excerpt }}</blockquote><p v-else>当前记录未保存可读摘要或正文片段，可通过文献标题查看来源。</p></div>
         </article>
       </div>
       <p v-if="!relatedEvidence.length" class="guide">该要点的关联文献正在整理，已有分析可在下方查看。</p>
     </div>
     <button v-if="relatedEvidence.length > 6" type="button" class="source-toggle expand-sources" :aria-expanded="showAll" @click="showAll = !showAll">{{ showAll ? '收起其余关联文献' : '展开其余关联文献（' + (relatedEvidence.length - 6) + ' 篇）' }} <span aria-hidden="true">{{ showAll ? '⌃' : '⌄' }}</span></button>
-    <div v-if="source" class="source-detail"><LiteratureReferences :items="[source]" /><ResultDisclosure v-if="sourceDetail.excerpt || sourceDetail.location" :key="source.evidence_id" label="查看文献内容" collapse-label="收起文献内容"><p>{{ sourceDetail.sourceKind }}<span v-if="sourceDetail.location"> · {{ sourceDetail.location }}</span></p><blockquote v-if="sourceDetail.excerpt">{{ sourceDetail.excerpt }}</blockquote></ResultDisclosure></div>
   </section>
 </template>
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import LiteratureReferences from './LiteratureReferences.vue'
-import ResultDisclosure from './ResultDisclosure.vue'
+import { literatureAuthors, bibliographyText } from '../services/literaturePresentation'
 import { assessmentGraphData } from '../services/researchGraphs'
 import { comparisonEvidenceDetail } from '../services/comparisonEvidencePresentation'
 import { resolveEvidenceUrl } from '../services/evidenceLinks'
@@ -41,7 +40,6 @@ const relatedEvidence = computed(() => {
 const visibleEvidence = computed(() => showAll.value ? relatedEvidence.value : relatedEvidence.value.slice(0, 6))
 function recordFor(id: string) { return (props.state.evidence_records || []).find((record: any) => record.evidence_id === id) }
 function sourceUrl(id: string) { const record = recordFor(id); return record ? resolveEvidenceUrl(record) : '' }
-const source = computed(() => relatedEvidence.value.some((item: any) => item.id === evidenceId.value) ? recordFor(evidenceId.value) : null)
 const sourceDetail = computed(() => comparisonEvidenceDetail((props.state.claim_evidence_links || []).find((link: any) => link.claim_id === currentPoint.value?.id && link.evidence_id === evidenceId.value) || {}, props.state.evidence_records || [], props.state.evidence_chunks || [], (props.state.claims || []).find((claim: any) => claim.claim_id === currentPoint.value?.id)))
 watch(() => currentPoint.value?.id, () => { evidenceId.value = ''; showAll.value = false })
 watch(() => currentPoint.value?.id, () => { if (currentPoint.value && currentPoint.value.id !== props.selected) emit('select', currentPoint.value.id) }, { immediate: true })

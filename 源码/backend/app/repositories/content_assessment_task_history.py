@@ -14,6 +14,7 @@ import asyncio
 import logging
 import os
 import re
+import zlib
 from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
@@ -22,10 +23,47 @@ from typing import Any, Callable
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.errors import PyMongoError
+from bson import BSON, Binary
 
 from app.core.config import MONGO_DB, MONGO_URI, MONGO_URI_SAFE, TASK_COLLECTION
 
 logger = logging.getLogger(__name__)
+
+COMPRESSED_STATE_THRESHOLD = 6 * 1024 * 1024
+
+
+def _pack_large_state(updates: dict[str, Any]) -> dict[str, Any]:
+    """Keep a full large checkpoint without duplicating it in Mongo fields."""
+    state = updates.get("state")
+    if not isinstance(state, dict):
+        return updates
+    packed = dict(updates)
+    if len(BSON.encode({"state": state})) < COMPRESSED_STATE_THRESHOLD:
+        packed["state_blob"] = None
+        packed.setdefault("output_json", state.get("output_json", {}))
+        packed.setdefault("output_markdown", state.get("output_markdown", ""))
+        return packed
+    packed["state_blob"] = Binary(zlib.compress(BSON.encode(state), level=6))
+    packed["state"] = {"current_stage": state.get("current_stage", "")}
+    packed["output_json"] = {"generation_recovery": state.get("output_json", {}).get("generation_recovery")}
+    packed["output_markdown"] = ""
+    return packed
+
+
+def _hydrate_large_state(record: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not record or not record.get("state_blob"):
+        return record
+    record = dict(record)
+    state = BSON(zlib.decompress(record.pop("state_blob"))).decode()
+    # A startup reconciliation may have marked the small Mongo envelope as
+    # failed while its compressed checkpoint still says it was running.
+    stage = record.get("state", {}).get("current_stage")
+    if stage:
+        state["current_stage"] = stage
+    record["state"] = state
+    record["output_json"] = state.get("output_json", {})
+    record["output_markdown"] = state.get("output_markdown", "")
+    return record
 
 USE_MEMORY_STORE = os.getenv("USE_MEMORY_STORE", "").strip().lower() in ("true", "1", "yes", "on")
 
@@ -289,15 +327,46 @@ class ContentAssessmentTaskHistoryRepository:
 
     async def update_report(self, task_id: str, user_scope: str, expected_updated_at: str, fields: dict) -> bool:
         collection = await self._get_collection()
-        result = await asyncio.to_thread(collection.update_one,
-            {"task_id": task_id, "user_scope": user_scope, "updated_at": expected_updated_at}, {"$set": fields})
+        selector = {"task_id": task_id, "user_scope": user_scope, "updated_at": expected_updated_at}
+        if any(key == "state" or key.startswith("state.") or key == "output_markdown"
+               or key == "output_json" or key.startswith("output_json.") for key in fields):
+            current = await asyncio.to_thread(collection.find_one, selector, {"state": 1, "state_blob": 1})
+            if not current:
+                return False
+            if current.get("state_blob"):
+                state = _hydrate_large_state(current)["state"]
+                updates = dict(fields)
+                for path in list(updates):
+                    if path == "state":
+                        state = updates.pop(path)
+                    elif path.startswith("state."):
+                        target = state
+                        parts = path.split(".")[1:]
+                        for part in parts[:-1]:
+                            target = target.setdefault(part, {})
+                        target[parts[-1]] = updates.pop(path)
+                for path in list(updates):
+                    if path == "output_markdown":
+                        state["output_markdown"] = updates.pop(path)
+                    elif path == "output_json":
+                        state["output_json"] = updates.pop(path)
+                    elif path.startswith("output_json."):
+                        target = state.setdefault("output_json", {})
+                        parts = path.split(".")[1:]
+                        for part in parts[:-1]:
+                            target = target.setdefault(part, {})
+                        target[parts[-1]] = updates.pop(path)
+                updates = _pack_large_state({**updates, "state": state})
+                result = await asyncio.to_thread(collection.update_one, selector, {"$set": updates})
+                return result.matched_count > 0
+        result = await asyncio.to_thread(collection.update_one, selector, {"$set": fields})
         return result.matched_count > 0
 
     async def create(self, record: dict[str, Any]) -> str:
         """创建一条任务记录，返回 task_id。"""
         try:
             collection = await self._get_collection()
-            result = await asyncio.to_thread(collection.insert_one, record)
+            result = await asyncio.to_thread(collection.insert_one, _pack_large_state(record))
             return str(result.inserted_id)
         except PyMongoError as exc:
             logger.error("创建任务记录失败 task_id=%s: %s", record.get("task_id"), exc)
@@ -315,7 +384,7 @@ class ContentAssessmentTaskHistoryRepository:
             result = await asyncio.to_thread(
                 collection.update_one,
                 {"task_id": task_id, "user_scope": user_scope},
-                {"$set": updates},
+                {"$set": _pack_large_state(updates)},
             )
             return result.matched_count > 0
         except PyMongoError as exc:
@@ -326,10 +395,11 @@ class ContentAssessmentTaskHistoryRepository:
         """按 task_id + user_scope 查询单条任务详情。"""
         try:
             collection = await self._get_collection()
-            return await asyncio.to_thread(
+            record = await asyncio.to_thread(
                 collection.find_one,
                 {"task_id": task_id, "user_scope": user_scope},
             )
+            return _hydrate_large_state(record)
         except PyMongoError as exc:
             logger.error("查询任务详情失败 task_id=%s: %s", task_id, exc)
             raise TaskHistoryError(f"查询任务记录失败：{exc}") from exc
@@ -382,7 +452,7 @@ class ContentAssessmentTaskHistoryRepository:
                 lambda: list(
                     collection.find(
                         filter_dict,
-                        {"state": 0, "output_json": 0},
+                        {"state": 0, "state_blob": 0, "output_json": 0},
                     )
                     .sort("created_at", -1)
                     .skip(skip)
@@ -431,10 +501,12 @@ class ContentAssessmentTaskHistoryRepository:
     async def list_topic_recoveries(self) -> list[dict[str, Any]]:
         try:
             collection = await self._get_collection()
-            return await asyncio.to_thread(lambda: list(collection.find({
+            records = await asyncio.to_thread(lambda: list(collection.find({
                 'task_type': '智能选题', 'status': {'$in': list(ACTIVE_STATUSES)},
                 'output_json.generation_recovery.enabled': True},
-                {'_id': 0, 'task_id': 1, 'user_scope': 1, 'status': 1, 'updated_at': 1, 'state': 1})))
+                {'_id': 0, 'task_id': 1, 'user_scope': 1, 'status': 1, 'updated_at': 1, 'state': 1,
+                 'state_blob': 1})))
+            return [_hydrate_large_state(record) for record in records]
         except PyMongoError as exc:
             raise TaskHistoryError('自动恢复记录读取暂不可用') from exc
 

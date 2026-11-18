@@ -58,7 +58,9 @@ export function assessmentTrendSeries(state: ResultState): TrendSeries[] {
   if (entry) {
     // Coverage counts are not annual counts, and multi-theme counts overlap.
     if (!entry.included || entry.render_mode !== 'primary') return []
-    return Object.entries(entry.chart_data || {}).map(([label, points]) => ({ label,
+    const data = entry.chart_data || {}
+    if (Array.isArray(data.points)) return [{ label: '检索样本', points: data.points.map((point: any) => ({ year: Number(point.year), count: Number(point.count) })) }]
+    return Object.entries(data).filter(([, points]) => Array.isArray(points)).map(([label, points]) => ({ label,
       points: (points as number[][]).map(([year, count]) => ({ year, count })) }))
   }
   const counts = new Map<number, number>()

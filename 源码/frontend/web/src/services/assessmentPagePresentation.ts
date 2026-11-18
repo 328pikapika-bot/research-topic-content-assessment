@@ -115,10 +115,14 @@ export function assessmentCitationSources<T extends { evidence_id: string }>(
   const result: Record<number, T> = {}
   const entries = Object.entries(numbers || {}).filter(([, number]) => Number.isInteger(number) && number > 0)
   for (const [id, number] of entries) {
-    // A malformed duplicate mapping is ambiguous: keep the original citation text.
-    if (entries.filter(([, n]) => n === number).length !== 1) continue
     const record = records.find(item => item.evidence_id === id)
-    if (record) result[number] = record
+    const aliases = entries.filter(([, n]) => n === number).map(([key]) => records.find(item => item.evidence_id === key))
+    const identity = (item: any) => String(item?.doi || '').toLowerCase().replace(/^https?:\/\/(?:dx\.)?doi\.org\/|^doi:\s*/, '')
+      || item?.paper_id || item?.nstl_url || item?.source_url || item?.url || ''
+    // Duplicated records may legitimately share a frozen bibliography number.
+    // Conflicting or missing identities remain unlinked instead of guessing.
+    if (aliases.length > 1 && (!record || !identity(record) || aliases.some(item => !item || identity(item) !== identity(record)))) continue
+    if (record && !result[number]) result[number] = record
   }
   return result
 }

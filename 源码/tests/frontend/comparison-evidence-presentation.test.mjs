@@ -161,7 +161,7 @@ test('comparison UI uses frozen conclusions with lightweight sources and omits i
   const analysis = page.split("activeStage.stage_key === 'comparison'")[1].split("activeStage.stage_key === 'assessment'")[0]
   assert.equal((analysis.match(/<ResultDisclosure\b/g) || []).length, 1)
   assert.doesNotMatch(analysis, /ComparisonEvidenceDetail|查看原文与指标|文献摘要/)
-  assert.match(analysis, /<LiteratureReferences[^\n]+show-abstract/)
+  assert.match(analysis, /<LiteratureReferences :items="\[row.source\]"/)
   assert.doesNotMatch(page, /LiteratureCard v-for="item in group.sources"/)
   assert.match(page, /frozenPointResult\(taskState.value\?\.report_snapshot, claimId, judgement, '\\n\\n'\)/)
   assert.doesNotMatch(page, /内部证据编号：\{\{ claim\.evidenceRefs/)

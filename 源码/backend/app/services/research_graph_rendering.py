@@ -58,7 +58,8 @@ def _card(draw, box, label, subtitle="", color=COLORS[0], *, pale=False):
 
 
 def _wrapped_lines(draw, value, font, width):
-    text = " ".join(str(value or "").split())
+    from app.common.retrieval.links import bibliography_text
+    text = " ".join(bibliography_text(value).split())
     lines = []
     current = ""
     for char in text:
@@ -104,9 +105,11 @@ def _edge(draw, start, end, color, dashed=False, width=5):
 
 
 def _participants(row):
-    values = row.get("participating_disciplines") or [
-        {"discipline": row.get("core"), "role": "core"},
-        {"discipline": row.get("expansion"), "role": "expansion"}]
+    values = list(row.get("participating_disciplines") or [
+        {"discipline": row.get("core") or row.get("core_discipline"), "role": "core"},
+        {"discipline": row.get("expansion") or row.get("expansion_discipline"), "role": "expansion"}])
+    if not any(item.get('role') == 'core' for item in values):
+        values.insert(0, {"discipline": row.get('core') or row.get('core_discipline'), "role": "core"})
     seen = set(); result = []
     for item in values:
         name = str(item.get("discipline") or "").strip()
@@ -180,92 +183,76 @@ def topic_opportunity_parts(rows: list[dict[str, Any]], *, concise: bool = False
 
 
 def topic_tree_parts(data: dict[str, Any]) -> list[bytes]:
-    nodes = data.get("nodes") or []
-    if not nodes: return []
-    by_id = {str(n.get("theme_id")): n for n in nodes}
-    children = {key: [] for key in by_id}; roots = []; pending = []
+    """One complete left-to-right tree, using the same hierarchy as the page."""
+    nodes = list({str(n.get("theme_id")): n for n in data.get("nodes", [])
+                  if n.get("theme_id") and n.get("theme_id") != "root"}.values())
+    if not nodes:
+        return []
+    by_id = {str(n["theme_id"]): n for n in nodes}
+    hierarchy = []
     for node in nodes:
-        nid = str(node.get("theme_id")); parent = str(node.get("parent_id") or "")
-        seen = {nid}; cursor = parent; invalid = False
-        while cursor and cursor != "root":
+        parent = str(node.get("parent_id") or "root")
+        cursor = parent; depth = 1; seen = {str(node["theme_id"])}; uncertain = False
+        while cursor != "root":
             if cursor in seen or cursor not in by_id:
-                invalid = True; break
-            seen.add(cursor); cursor = str(by_id[cursor].get("parent_id") or "")
-        if invalid: pending.append(node)
-        elif parent in children: children[parent].append(node)
-        else: roots.append(node)
-    groups = roots + pending
-    result = []
-    for branch in groups:
-        ordered = []
-        def visit(node, depth):
-            ordered.append((node, depth))
-            for child in children.get(str(node.get("theme_id")), []): visit(child, depth + 1)
-        visit(branch, 1)
-        chunks = [ordered[i:i + 8] for i in range(0, len(ordered), 8)]
-        for chunk in chunks:
-            included = {str(node.get("theme_id")) for node, _ in chunk}
-            context = []
-            for node, _ in chunk:
-                ancestor = str(node.get("parent_id") or "")
-                lineage = []
-                while ancestor in by_id and ancestor not in included:
-                    parent = by_id[ancestor]
-                    lineage.append(parent)
-                    ancestor = str(parent.get("parent_id") or "")
-                for parent in reversed(lineage):
-                    parent_id = str(parent.get("theme_id"))
-                    if parent_id not in included:
-                        context.append((parent, next(d for n, d in ordered if n is parent)))
-                        included.add(parent_id)
-            display = [*context, *chunk]
-            max_depth = max(depth for _, depth in display)
-            width = max(850, 430 + max_depth * 225 + 60)
-            step = min(245, (width - 480) // max_depth)
-            title_font = _font(22, True)
-            measure = ImageDraw.Draw(Image.new("RGB", (1, 1), "white"))
-            row_gap = 34
-            row_heights = []
-            for node, _ in display:
-                label = node.get("display_label") or node.get("label") or ""
-                available = max(160, step - 54)
-                lines = _wrapped_lines(measure, label, title_font, available)
-                row_heights.append(max(108, 54 + len(lines) * 29))
-            content_height = sum(row_heights) + row_gap * max(0, len(display) - 1)
-            # Keep the established minimum canvas while adding room whenever
-            # wrapped labels make a node taller than its compact baseline.
-            height = max(480, 480 + sum(max(0, row_height - 108) for row_height in row_heights))
-            image = Image.new("RGB", (width, height), "white"); draw = ImageDraw.Draw(image)
-            root_label = data.get("display_root") or data.get("root") or "研究总方向"
-            root_box = (55, 55, 350, 140)
-            boxes = {}
-            row_y = 160 + max(0, height - 190 - content_height) / 2
-            for i, (node, depth) in enumerate(display):
-                x = 430 + (depth - 1) * step
-                boxes[str(node.get("theme_id"))] = (x, row_y, x + max(230, step - 20), row_y + row_heights[i])
-                row_y += row_heights[i] + row_gap
-            for node, depth in display:
-                nid = str(node.get("theme_id")); parent = str(node.get("parent_id") or "")
-                child_box = boxes[nid]; parent_box = boxes.get(parent, root_box)
-                if node is branch and branch in pending:
-                    continue
-                if parent in boxes or (node is branch and branch not in pending):
-                    _edge(draw, (parent_box[2], (parent_box[1]+parent_box[3])/2), (child_box[0], (child_box[1]+child_box[3])/2), COLORS[min(depth-1, 5)])
-            _card(draw, root_box, root_label, "研究总方向", COLORS[0], pale=True)
-            for node, depth in display:
-                nid = str(node.get("theme_id")); box = boxes[nid]
-                subtitle = "待确认层级" if node is branch and branch in pending else "主题 · 第%s层" % depth
-                _card_full_title(draw, box, node.get("display_label") or node.get("label") or nid, subtitle, COLORS[min(depth-1, 5)])
-                keywords = [str(k) for k in node.get("seed_terms") or node.get("keywords") or [] if str(k).strip()]
-                if keywords:
-                    leaf = (box[0] + 5, box[3] + 15, box[2], box[3] + 52)
-                    draw.line((box[0] + 45, box[3], box[0] + 45, leaf[1]), fill=COLORS[min(depth-1, 5)], width=3)
-                    draw.rounded_rectangle(leaf, radius=13, fill="#f4f6fb", outline="#d5ddec", width=2)
-                    keyword_font = _font(20)
-                    draw.text((leaf[0] + 8, leaf[1] + 5), _fit(draw, "关键词：" + "、".join(keywords), keyword_font, leaf[2]-leaf[0]-16), fill=MUTED, font=keyword_font)
-            draw.text((55, height - 45), "层级仅表示已记录的归属；无效父节点或循环关系列为待确认。", fill=MUTED, font=_font(22))
-            result.append(_png(image))
-    return result
+                uncertain = True; depth = 1; parent = ""; break
+            seen.add(cursor); depth += 1
+            cursor = str(by_id[cursor].get("parent_id") or "root")
+        hierarchy.append((node, depth, parent, uncertain))
+    ordered = []
+    def visit(row):
+        ordered.append(row)
+        for child in hierarchy:
+            if child[2] == str(row[0]["theme_id"]):
+                visit(child)
+    for row in hierarchy:
+        if row[1] == 1:
+            visit(row)
+    deepest = max(row[1] for row in ordered)
+    measure = ImageDraw.Draw(Image.new("RGB", (1, 1), "white"))
+    font = _font(22, True)
+    root_label = data.get("display_root") or data.get("root") or "研究总方向"
+    root_height = max(110, 62 + len(_wrapped_lines(measure, root_label, font, 288)) * 29)
+    keyword_labels = []
+    heights = []
+    for node, depth, parent, uncertain in ordered:
+        has_children = any(row[2] == str(node["theme_id"]) for row in hierarchy)
+        keywords = node.get("seed_terms") or node.get("keywords") or []
+        keyword = "、".join(str(k) for k in keywords) if not has_children else ""
+        keyword_labels.append(keyword)
+        label = node.get("display_label") or node.get("label") or node["theme_id"]
+        heights.append(max(112, 62 + len(_wrapped_lines(measure, label, font, 328)) * 29,
+                           62 + len(_wrapped_lines(measure, keyword, font, 308)) * 29 if keyword else 0))
+    gap = 28
+    content_height = sum(heights) + gap * (len(heights) - 1)
+    width = 450 + deepest * 440 + 390
+    height = max(420 + sum(max(0, h - 112) for h in heights), content_height + 180, root_height + 180)
+    image = Image.new("RGB", (width, height), "white"); draw = ImageDraw.Draw(image)
+    root_box = (45, (height-root_height)/2, 365, (height+root_height)/2)
+    boxes = {}; leaves = {}; y = (height-content_height)/2
+    for (node, depth, parent, uncertain), row_height, keyword in zip(ordered, heights, keyword_labels):
+        x = 450 + (depth-1) * 440
+        boxes[str(node["theme_id"])] = (x, y, x+360, y+row_height)
+        if keyword:
+            leaves[str(node["theme_id"])] = (450+deepest*440, y, 790+deepest*440, y+row_height)
+        y += row_height + gap
+    for node, depth, parent, uncertain in ordered:
+        nid = str(node["theme_id"]); box = boxes[nid]; color = COLORS[(depth-1) % len(COLORS)]
+        if not uncertain:
+            source = boxes.get(parent, root_box)
+            _edge(draw, (source[2], (source[1]+source[3])/2), (box[0], (box[1]+box[3])/2), color)
+        if nid in leaves:
+            leaf = leaves[nid]
+            _edge(draw, (box[2], (box[1]+box[3])/2), (leaf[0], (leaf[1]+leaf[3])/2), color)
+    _card_full_title(draw, root_box, root_label, "研究总方向", COLORS[0], pale=True)
+    for (node, depth, parent, uncertain), keyword in zip(ordered, keyword_labels):
+        nid = str(node["theme_id"]); color = COLORS[(depth-1) % len(COLORS)]
+        _card_full_title(draw, boxes[nid], node.get("display_label") or node.get("label") or nid,
+                         "层级待确认" if uncertain else "研究主题", color)
+        if keyword:
+            _card_full_title(draw, leaves[nid], keyword, "关键词", color, pale=True)
+    draw.text((45, height-45), "层级表示研究范围的归属，关键词是检索线索。", fill=MUTED, font=_font(22))
+    return [_png(image)]
 
 
 def assessment_evidence_parts(chart: dict[str, Any]) -> list[bytes]:
@@ -281,7 +268,8 @@ def assessment_evidence_parts(chart: dict[str, Any]) -> list[bytes]:
         title_font = _font(22, True)
         row_heights = []
         for _eid, item in evidence_rows:
-            title = " ".join(str(item.get("label") or "").split())
+            from app.common.retrieval.links import bibliography_text
+            title = " ".join(bibliography_text(item.get("label")).split())
             width = 950
             lines = 1
             current = ""

@@ -155,6 +155,10 @@ def selected_sources(state, claim, limit=6):
         method_latin = tokens(method_match.group()) if method_match else set()
         first = method_match.group().split()[0] if method_match else ""
         primary = {first.lower()} if first.isupper() or re.search(r"[A-Z].*[A-Z]|\d", first) else method_latin
+        # Operational abbreviations describe a procedure, not an exclusive
+        # named research method. Related process studies need not spell SOP.
+        if first.upper() == "SOP":
+            primary = set()
         reader = state.output_json.get("reader_comparisons", {}).get(claim.claim_id, {}).get(record.evidence_id, {})
         # A source-specific, two-sided comparison may legitimately use a
         # different named method. It still passed the topical text checks
@@ -163,7 +167,7 @@ def selected_sources(state, claim, limit=6):
         if not grounded_comparator and primary and len(primary & corpus) < min(2, len(primary)):
             continue
         secondary = method_latin - primary
-        if not grounded_comparator and first.isupper() and secondary and not secondary & corpus:
+        if not grounded_comparator and first.upper() != "SOP" and first.isupper() and secondary and not secondary & corpus:
             continue
         score = len(concrete) + len(title_overlap) * 2 + (1 if link else 0)
         if primary and record.title.lower().startswith(first.lower() + ":"):
@@ -278,10 +282,21 @@ async def draft(graph, state):
         stage_rows = saved_evaluations(state, claim) if not state.report_snapshot else []
         stage_dimensions = {row.get("dimension") for row in stage_rows if row.get("dimension") in DIMENSIONS}
         saved = drafts.get(claim.claim_id, {})
+        units = state.output_json.get("scholarly_unit_completion", {}).get(claim.claim_id, {})
+        if packet["literature"] and any(unit.get("status") == "limited" for unit in units.values()):
+            saved = {}
+            drafts.pop(claim.claim_id, None)
+            state.output_json["scholarly_unit_completion"].pop(claim.claim_id, None)
         saved_judgement_dimensions = {row.get("dimension") for row in saved.get("judgement", []) if row.get("dimension")}
         missing_stage_dimensions = sorted(
             set(DIMENSIONS) - stage_dimensions - saved_judgement_dimensions if stage_rows else set())
         if not packet["literature"]:
+            from .source_recovery import source_limited, limited_point_draft
+            if source_limited(state, claim):
+                drafts[claim.claim_id] = limited_point_draft(state, claim)
+                state.output_json.setdefault("scholarly_unit_completion", {})[claim.claim_id] = {
+                    key: {"status": "limited", "reason": "no_comparable_source"}
+                    for key in ("progress", "comparison", "judgement", "evaluation")}
             continue
         review = state.output_json.get("scholarly_source_reviews", {}).get(claim.claim_id, {})
         pending = review.get("pending_draft") if review.get("failure_kind") == "review_protocol" else None
@@ -722,7 +737,8 @@ def publication_gaps(state):
     """Keep unfinished main analyses on the task page, outside the report."""
     drafts = state.output_json.get("scholarly_drafts", {})
     completion = state.output_json.get("scholarly_unit_completion", {})
-    return [point_title(c) for c in state.claims if not selected_sources(state, c) or
+    from .source_recovery import source_limited
+    return [point_title(c) for c in state.claims if (not selected_sources(state, c) and not source_limited(state, c)) or
             any(unit.get("status") == "pending" for unit in completion.get(c.claim_id, {}).values()) or
             any(not drafts.get(c.claim_id, {}).get(key) for key in
                 ("progress", "comparison", "judgement", "evaluation"))]

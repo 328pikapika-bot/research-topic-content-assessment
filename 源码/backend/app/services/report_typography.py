@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import re
 
-TYPOGRAPHY_VERSION = "serif-reference-20261015-v1"
+TYPOGRAPHY_VERSION = "serif-reference-20261117-body-citations-v7"
 FONT_DIRECTORY = Path(__file__).resolve().parents[3] / ".runtime/report-tools/fonts"
 
 
@@ -41,6 +41,7 @@ h3 {font-size:16pt;} h4 {font-size:14pt;} h5,h6 {font-size:12pt;}
 .report-head h1 {font-size:26pt;line-height:1.45;color:#1a1a1a;}
 .candidate h3,p.lead {color:#1a1a1a;}
 p {line-height:1.8;} a,.citation,.toc a {color:#2c6fbb;}
+.citation {font-size:1em;line-height:inherit;vertical-align:baseline;}
 table {font-size:10.5pt;line-height:1.45;} th,td {line-height:1.45;}
 th {color:#1a1a1a;background:#f3f4f5;}
 .meta,.metadata,.metadata p,.report-meta,figcaption,.caption,.source-note {font-size:10.5pt;line-height:1.6;color:#666;}
@@ -91,6 +92,13 @@ Existing numbering, bookmarks, citations, geometry and emphasis are retained.
         # Set fonts on all styles, including TOC styles used by Writer refresh.
         fonts(style.element.get_or_add_rPr(), 12)
         if style.type != 1:
+            # Character styles must inherit the paragraph's size. Writer can
+            # reapply a fixed Hyperlink style size after saving/reopening DOCX,
+            # overriding smaller source notes despite their run formatting.
+            props = style.element.get_or_add_rPr()
+            for tag in ("w:sz", "w:szCs"):
+                for setting in props.findall(qn(tag)):
+                    props.remove(setting)
             continue
         style.paragraph_format.line_spacing = Pt(21.6)
         name = style.name
@@ -162,6 +170,16 @@ Existing numbering, bookmarks, citations, geometry and emphasis are retained.
             props = run.get_or_add_rPr()
             linked = bool(run.xpath("ancestor::w:hyperlink"))
             fonts(props, size, color="2C6FBB" if linked else color, bold=bold)
+            # Word/Writer shrink superscript even when w:sz matches the body.
+            # Normalize only citation links; scientific exponents keep their
+            # original vertical alignment.
+            link = run.getparent()
+            anchor = link.get(qn("w:anchor"), "") if linked else ""
+            label = "".join(run.xpath(".//w:t/text()"))
+            if linked and (anchor.startswith(("ref_", "ref-")) or re.fullmatch(r"\[\d+\]", label)):
+                for tag in ("w:vertAlign", "w:position"):
+                    for setting in props.findall(qn(tag)):
+                        props.remove(setting)
         for border in node.xpath("./w:pPr/w:pBdr/*"):
             border.set(qn("w:color"), "D9D9D9")
             border.set(qn("w:sz"), "6")

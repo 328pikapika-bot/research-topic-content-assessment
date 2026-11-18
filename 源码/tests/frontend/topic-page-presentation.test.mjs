@@ -7,7 +7,7 @@ import ts from '../../frontend/web/node_modules/typescript/lib/typescript.js'
 const source = fs.readFileSync(new URL('../../frontend/web/src/services/topicPagePresentation.ts', import.meta.url), 'utf8')
 const context = { exports: {} }
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context)
-const { topicDisplayTitle, candidateDirection, orderedTopicCandidates, topicCandidateFields, topicCandidateReading, topicCandidateReaderText, topicThemeNodes, topicCitationSources, citationTextParts, uniqueTopicEvidence } = context.exports
+const { topicDisplayTitle, candidateDirection, orderedTopicCandidates, topicCandidateFields, topicCandidateReading, topicCandidateReaderText, topicThemeNodes, topicCitationMap, topicCitationSources, citationTextParts, uniqueTopicEvidence } = context.exports
 
 test('saved AI title is shown in full instead of a sliced original question', () => {
   const title = '长三角高密度城市夏季热环境与人体热暴露差异研究'
@@ -106,8 +106,58 @@ test('citations follow saved report numbering even when literature is reordered'
 test('single and grouped citation markers preserve text and individual destinations', () => {
   const text = '已有研究[34][41]；方法比较[34, 41、60]，年份2025及普通文字保持原样。'
   const parts = citationTextParts(text)
-  assert.equal(parts.map(part => part.text).join(''), text)
+  assert.equal(parts.map(part => part.text).join(''), text.replace('[34, 41、60]', '[34][41][60]'))
   assert.equal(parts.filter(part => part.number).map(part => part.number).join(','), '34,41,34,41,60')
   assert.equal(parts.find(part => part.number === 34).text, '[34]')
   assert.equal(citationTextParts('<script>无引用</script>').length, 1)
+})
+
+test('published empty bibliography does not manufacture numbers from retrieval order', () => {
+  const state = { report_plan: { citation_map: {}, publication_status: 'published', sections: [{ blocks: [{ kind: 'reference_list', items: [] }] }] },
+    evidence_pool: [{ evidence_id: 'uncited', title: '仅检索到的文献' }] }
+  assert.equal(Object.keys(topicCitationMap(state)).length, 0)
+  assert.equal(Object.keys(topicCitationSources(state)).length, 0)
+})
+
+test('unpublished candidate step can cite the retrieved sources before report composition', () => {
+  const state = { report_plan: { citation_map: {}, publication_status: 'draft', sections: [{ blocks: [] }] },
+    evidence_pool: [{ evidence_id: 'E-first', title: '相关研究' }] }
+  assert.equal(topicCitationMap(state)['E-first'], 1)
+  assert.equal(topicCitationSources(state)[1].title, '相关研究')
+})
+
+test('candidate text removes empty punctuation-only source parentheses', () => {
+  assert.equal(topicCandidateReaderText('现有方法（, ）可用；测量（，、）有效。'), '现有方法可用；测量有效。')
+})
+
+test('context-only sources are labelled as related literature in the candidate step', () => {
+  const candidate = { candidate_id: 'C1', reader_content: { reason: { text: '拟比较方法', evidence_ids: [] },
+    research_content: {}, background_summary: { text: '仅作研究背景。', evidence_ids: ['E1'] } } }
+  const reading = topicCandidateReading(candidate, [candidate], [], { E1: 4 })
+  assert.equal(reading.evidenceLabel, '相关文献')
+  assert.equal(reading.evidenceSummary, '仅作研究背景。 [4]')
+})
+
+test('candidate page uses the published report fields and citation positions', () => {
+  const candidate = { candidate_id: 'C1', reader_content: { reason: { text: '旧草稿', evidence_ids: ['old'] }, research_content: {} } }
+  const sections = [{ blocks: [{ kind: 'candidate_detail', candidate_id: 'C1', fields: [
+    { label: '选题理由', value: '正式理由[2][1]' },
+    { label: '研究内容', value: '研究对象：城区[1]\n核心问题：热暴露[2]\n方法路线：遥感[1][2]' },
+  ] }] }]
+  const reading = topicCandidateReading(candidate, [candidate], sections, { old: 9 })
+  assert.equal(reading.reason, '正式理由[2][1]')
+  assert.equal(reading.researchContent.map(item => item.value).join('|'), '城区[1]|热暴露[2]|遥感[1][2]')
+})
+
+test('research fields preserve semicolons and citations within each complete field', () => {
+  const candidate = { candidate_id: 'C1' }
+  const sections = [{ blocks: [{ kind: 'candidate_detail', candidate_id: 'C1', fields: [
+    { label: '研究内容', value: '研究对象：城区[1]\n核心问题：是否可迁移；误差是否稳定？[2]\n方法路线：先校准；再验证。[3][4]' },
+  ] }] }]
+  assert.equal(topicCandidateReading(candidate, [candidate], sections, {}).researchContent.map(item => item.value).join('|'),
+    '城区[1]|是否可迁移；误差是否稳定？[2]|先校准；再验证。[3][4]')
+})
+
+test('scientific lifetime labels are not removed as internal theme identifiers', () => {
+  assert.equal(topicCandidateReaderText('比较组件I-V、T80和失效记录。[1][2]'), '比较组件I-V、T80和失效记录。[1][2]')
 })

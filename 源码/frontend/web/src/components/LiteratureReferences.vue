@@ -5,7 +5,7 @@
       <span v-if="item.year" class="reference-year">{{ item.year }}</span>
       <a v-if="resolveEvidenceUrl(item)" :href="resolveEvidenceUrl(item)" target="_blank" rel="noopener noreferrer">{{ bibliographyText(item.title) }}</a>
       <span v-else>{{ bibliographyText(item.title) }}</span>
-      <span v-if="item.authors?.length" class="reference-authors">{{ item.authors.slice(0, 2).join('、') }}{{ item.authors.length > 2 ? ' 等' : '' }}</span>
+      <span v-if="item.authors?.length" class="reference-authors">{{ literatureAuthors(item.authors) }}</span>
       <button v-if="showAbstract && bibliographyText(item.abstract)" type="button" class="reference-abstract-toggle" :aria-expanded="Boolean(expanded[item.evidence_id || index])" :aria-controls="`${instanceId}-abstract-${index}`" @click="expanded[item.evidence_id || index] = !expanded[item.evidence_id || index]">{{ expanded[item.evidence_id || index] ? '收起摘要' : '摘要' }}<span aria-hidden="true">{{ expanded[item.evidence_id || index] ? '⌃' : '⌄' }}</span></button>
       </div>
       <p v-if="showAbstract && expanded[item.evidence_id || index]" :id="`${instanceId}-abstract-${index}`" class="reference-abstract">{{ bibliographyText(item.abstract) }}</p>
@@ -15,7 +15,7 @@
 <script setup lang="ts">
 import { reactive, useId } from 'vue'
 import { resolveEvidenceUrl } from '../services/evidenceLinks'
-import { bibliographyText, type LiteratureEvidence } from '../services/literaturePresentation'
+import { bibliographyText, literatureAuthors, type LiteratureEvidence } from '../services/literaturePresentation'
 defineProps<{ items: LiteratureEvidence[]; showAbstract?: boolean }>()
 const instanceId = useId()
 const expanded = reactive<Record<string, boolean>>({})

@@ -28,9 +28,17 @@ const compiled = ts.transpileModule(compileScript(parse(source).descriptor, { id
 async function service(name) {
   const text = await readFile(new URL(`../../frontend/web/src/services/${name}.ts`, import.meta.url), 'utf8')
   let js = ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
+  if (name === 'homepageDraft') {
+    const catalog = JSON.parse(await readFile(new URL('../../frontend/web/src/services/homepageCases.json', import.meta.url), 'utf8'))
+    const moduleUrl = `data:text/javascript;base64,${Buffer.from(`export default ${JSON.stringify(catalog)}`).toString('base64')}`
+    js = js.replaceAll("'./homepageCases.json'", `'${moduleUrl}'`)
+  }
   if (name === 'assessmentInput') {
     const draftSource = await readFile(new URL('../../frontend/web/src/services/homepageDraft.ts', import.meta.url), 'utf8')
-    const draftJs = ts.transpileModule(draftSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
+    let draftJs = ts.transpileModule(draftSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText
+    const catalog = JSON.parse(await readFile(new URL('../../frontend/web/src/services/homepageCases.json', import.meta.url), 'utf8'))
+    const moduleUrl = `data:text/javascript;base64,${Buffer.from(`export default ${JSON.stringify(catalog)}`).toString('base64')}`
+    draftJs = draftJs.replaceAll("'./homepageCases.json'", `'${moduleUrl}'`)
     js = js.replace("'./homepageDraft'", `'data:text/javascript;base64,${Buffer.from(draftJs).toString('base64')}'`)
   }
   return import(`data:text/javascript;base64,${Buffer.from(js).toString('base64')}`)
@@ -38,6 +46,10 @@ async function service(name) {
 const draft = await service('homepageDraft')
 const errors = await service('apiErrors')
 const assessmentInput = await service('assessmentInput')
+function setAssessmentCaseInput(state, sample) {
+  state.form.topic = sample.input
+  state.onTopicInput()
+}
 function deferred() {
   let resolve, reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
@@ -69,7 +81,7 @@ async function harness(options = {}) {
     '../services/fileUploadApi': { uploadFile: options.upload || (async () => ({ fileId: 'file' })) },
     '../services/fileUploadErrors': { getUploadErrorInfo: error => ({ message: error?.message || 'error', code: error?.code || 'error', label: 'error' }) },
     '../services/nstlAuth': { getAuthManager: () => ({ requirePlatformLogin: async () => {}, showLoginModal() {} }) },
-    '../services/contentAssessmentUiApi': { runContentAssessment: async body => { calls.push(body); return options.run ? options.run(body) : { run_id: 'task' } } },
+    '../services/contentAssessmentUiApi': { runContentAssessment: async body => { calls.push(body); return options.run ? options.run(body) : { run_id: 'task' } }, getPublicCaseCatalog: async () => ({ ready: false, published_case_ids: [], expected_count: 9, version: 'v1' }) },
     '../services/topicSelectionApi': { runTopicSelection: async body => { calls.push(body); return { run_id: 'topic' } } },
     '../services/contentAssessmentApi': { previewNineFields: options.preview || (async () => ({ nine_fields: completeFields(), resolved_artifact_type: 'project', missing_fields: [], warnings: [] })) },
     '../tracker/contentAssessmentTracker': { errorKind: () => '', trackEvent() {}, trackOutcome() {} },
@@ -91,66 +103,37 @@ async function harness(options = {}) {
   return { state, props, events, calls, deleted, cleanup: () => cleanup(), warnings }
 }
 
-test('assessment case fills only source material and one arrow click extracts then starts', async () => {
-  let previews = 0
-  const h = await harness({ preview: async text => {
-    previews++
-    assert.equal(text, draft.ASSESSMENT_CASES[0].input)
-    return { nine_fields: completeFields('案例'), resolved_artifact_type: 'paper', missing_fields: [], warnings: [] }
-  } })
-  h.state.fillCase(draft.ASSESSMENT_CASES[0])
-  await flush()
-  assert.equal(h.state.form.topic, draft.ASSESSMENT_CASES[0].input.split('\n').slice(1).join('\n'))
-  assert.equal(h.state.selectedAssessmentType.value, 'paper')
-  assert.equal(h.state.nineDraft.research_direction, '')
-  assert.equal(h.state.assessmentNeedsSupplement.value, false)
-  await h.state.handleSubmit()
-  assert.equal(previews, 1)
-  assert.equal(h.calls.length, 1)
-  assert.equal(h.calls[0].nine_fields.research_direction, '案例研究方向')
-  assert.equal(h.calls[0].scenario_id, draft.ASSESSMENT_CASES[0].id)
-  assert.equal(h.events.filter(event => event[0] === 'navigate').length, 1)
-})
-
-test('editing a recommended case clears its scenario marker', async () => {
+test('assessment case opens the completed read-only detail without starting a task', async () => {
   const h = await harness()
-  h.state.fillCase(draft.ASSESSMENT_CASES[0])
-  h.state.form.topic += '\n用户补充内容'
-  h.state.onTopicInput()
-  await h.state.handleSubmit()
-  assert.equal(h.calls.length, 1)
-  assert.equal(h.calls[0].scenario_id, undefined)
+  h.state.publicCasesReady.value = true
+  h.state.openCase(draft.ASSESSMENT_CASES[0])
+  assert.equal(h.calls.length, 0)
+  assert.deepEqual(h.events.filter(event => event[0] === 'navigate'), [['navigate', 'task-detail', `public-case:${draft.ASSESSMENT_CASES[0].id}`]])
 })
 
-test('all six cases carry their declared type through preview and task creation', async () => {
-  const types = { 论文: 'paper', 项目: 'project', 指南: 'guideline' }
-  for (const sample of draft.ASSESSMENT_CASES) {
-    const expectedType = types[sample.category.split(' · ')[0]]
-    const h = await harness({ preview: async (text, _refs, type) => {
-      assert.equal(text, sample.input)
-      assert.equal(type, expectedType, sample.id)
-      const fields = type === 'guideline'
-        ? { research_goal: '统一试验口径', research_content: '规范流程', evaluation_indicators: ['跨实验室复现'], application_scenarios: ['实验室质量控制'] }
-        : { research_direction: '领域研究', research_content: '方法验证', key_technologies: ['受控实验'] }
-      return { nine_fields: fields, resolved_artifact_type: type, missing_fields: [], warnings: [], validation_version: 'assessment-input-semantic-v2' }
-    } })
-    h.state.fillCase(sample)
-    await flush()
-    assert.equal(h.state.selectedAssessmentType.value, expectedType, sample.id)
-    assert.doesNotMatch(h.state.form.topic, /我要评估的是/)
-    await h.state.handleSubmit()
-    assert.equal(h.calls.length, 1, sample.id)
-    assert.equal(h.calls[0].artifact_type, expectedType, sample.id)
-    assert.equal(h.calls[0].nine_fields.timeline, '', sample.id)
-    assert.doesNotMatch(h.state.assessmentFeedback.value, /请在输入框中说明/)
-  }
+test('case entry remains closed until all public snapshots are ready', async () => {
+  const h = await harness()
+  h.state.openCase(draft.TOPIC_CASES[0])
+  assert.equal(h.events.filter(event => event[0] === 'navigate').length, 0)
+  assert.equal(h.calls.length, 0)
+})
+
+test('every homepage case opens its stable public snapshot ID without task creation', async () => {
+  const cases = [...draft.TOPIC_CASES, ...draft.ASSESSMENT_CASES]
+  const h = await harness()
+  h.state.publicCasesReady.value = true
+  for (const sample of cases) h.state.openCase(sample)
+  const navigations = h.events.filter(event => event[0] === 'navigate')
+  assert.equal(navigations.length, cases.length)
+  assert.deepEqual(navigations.map(event => event[2]), cases.map(sample => `public-case:${sample.id}`))
+  assert.equal(h.calls.length, 0)
 })
 
 test('obsolete service is reported as a service problem and never submits a case', async () => {
   assert.throws(() => assessmentInput.requireCurrentAssessmentPreview({ missing_fields: ['research_goal', 'timeline'] }),
     error => error.name === 'AssessmentServiceVersionError' && /旧版输入规则/.test(error.message))
   const h = await harness({ preview: async () => assessmentInput.requireCurrentAssessmentPreview({ missing_fields: ['research_goal', 'timeline'] }) })
-  h.state.fillCase(draft.ASSESSMENT_CASES[0])
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES[0])
   const original = h.state.form.topic
   await h.state.handleSubmit()
   assert.equal(h.calls.length, 0)
@@ -175,7 +158,7 @@ test('declared guideline still requires its missing information and retains atta
 
 test('a response without extracted fields cannot start just because a type is declared', async () => {
   const h = await harness({ preview: async () => ({ nine_fields: {}, resolved_artifact_type: 'unknown', missing_fields: ['artifact_type'], warnings: [] }) })
-  h.state.fillCase(draft.ASSESSMENT_CASES.find(sample => sample.category.startsWith('指南')))
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES.find(sample => sample.category.startsWith('指南')))
   await h.state.handleSubmit()
   assert.equal(h.calls.length, 0)
   assert.match(h.state.assessmentFeedback.value, /已识别为指南.*研究目标.*研究内容.*考核指标.*应用场景/)
@@ -187,7 +170,7 @@ test('legacy preview without type starts a complete guideline case without attac
     assert.equal(files.length, 0)
     return { nine_fields: { research_goal: '统一规范', research_content: '制备培养检测流程', evaluation_indicators: ['三家实验室复现验证'], application_scenarios: ['屏障研究'] }, missing_fields: ['research_direction', 'technical_route', 'timeline'], warnings: [] }
   } })
-  h.state.fillCase(draft.ASSESSMENT_CASES.find(sample => sample.id === 'assessment-standard'))
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES.find(sample => sample.id === 'assessment-standard'))
   await h.state.handleSubmit()
   assert.equal(h.calls.length, 1)
   assert.equal(h.calls[0].artifact_type, 'guideline')
@@ -196,7 +179,7 @@ test('legacy preview without type starts a complete guideline case without attac
 
 test('legacy preview still stops a guideline with missing indicators', async () => {
   const h = await harness({ preview: async () => ({ nine_fields: { research_goal: '统一规范', research_content: '制备培养检测流程', application_scenarios: ['屏障研究'] }, missing_fields: [], warnings: [] }) })
-  h.state.fillCase(draft.ASSESSMENT_CASES.find(sample => sample.id === 'assessment-standard'))
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES.find(sample => sample.id === 'assessment-standard'))
   await h.state.handleSubmit()
   assert.equal(h.calls.length, 0)
   assert.match(h.state.assessmentFeedback.value, /补充考核指标/)
@@ -234,7 +217,7 @@ test('duplicate arrow clicks share one extraction and one task creation', async 
   const preview = deferred()
   const pending = deferred()
   const h = await harness({ preview: () => preview.promise, run: () => pending.promise })
-  h.state.fillCase(draft.ASSESSMENT_CASES[0])
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES[0])
   const first = h.state.handleSubmit()
   const duplicate = h.state.handleSubmit()
   await flush()
@@ -249,7 +232,7 @@ test('duplicate arrow clicks share one extraction and one task creation', async 
 
 test('failed submission retains extracted fields and exposes the backend reason', async () => {
   const h = await harness({ run: async () => { throw new Error('failure') } })
-  h.state.fillCase(draft.ASSESSMENT_CASES[1])
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES[1])
   await h.state.handleSubmit()
   assert.equal(h.state.submitError.value, 'failure')
   assert.equal(h.state.isLoading.value, false)
@@ -313,7 +296,7 @@ test('upload invalidates extraction but does not automatically extract before ar
     captured.push(refs)
     return { nine_fields: { research_direction: 'uploaded direction', research_goal: 'model goal' }, resolved_artifact_type: 'project', missing_fields: ['research_content', 'key_technologies'], warnings: [] }
   } })
-  h.state.fillCase(draft.ASSESSMENT_CASES[0])
+  setAssessmentCaseInput(h.state, draft.ASSESSMENT_CASES[0])
   await h.state.processFiles([{ name: 'material.txt', size: 10, lastModified: 1 }])
   await flush()
   assert.equal(captured.length, 0)
@@ -394,6 +377,36 @@ test('inline type selection inserts guides without preview and switches only emp
   assert.match(h.state.form.topic, /研究方向：数字图书馆/)
   assert.match(h.state.form.topic, /研究目标：\n研究内容：\n考核指标：\n应用场景：/)
   assert.doesNotMatch(h.state.form.topic, /关键方法：/)
+})
+
+test('invalid type removes empty prompts while keeping substantive material', async () => {
+  const h = await harness()
+  h.state.selectAssessmentType('paper')
+  h.state.assessmentTypeText.value = 'ddd'
+  h.state.onAssessmentTypeInput()
+  assert.equal(h.state.form.topic, '')
+  h.state.selectAssessmentType('paper')
+  h.state.form.topic = '研究方向：数字图书馆\n研究内容：\n关键方法：'
+  h.state.assessmentTypeText.value = 'ddd'
+  h.state.onAssessmentTypeInput()
+  assert.equal(h.state.form.topic, '研究方向：数字图书馆')
+})
+
+test('agent switching resets the composer and retains uploaded material', async () => {
+  const h = await harness()
+  assert.equal(h.state.timeRange.value, '5')
+  h.state.selectAssessmentType('project')
+  h.state.form.topic = '项目内容：保留在原智能体的研究说明'
+  h.state.uploadedFiles.value = [{ fileId: 'main', name: '材料.pdf', status: 'saved' }]
+  h.props.activeAgent = 'topic'
+  await flush()
+  assert.equal(h.state.form.topic, '')
+  assert.equal(h.state.assessmentTypeText.value, '')
+  assert.equal(h.state.selectedAssessmentType.value, 'auto')
+  assert.equal(h.state.uploadedFiles.value[0].fileId, 'main')
+  h.props.activeAgent = 'assessment'
+  await flush()
+  assert.equal(h.state.form.topic, '')
 })
 
 test('guided intake respects IME and rejects type-only or empty guides as material', async () => {
@@ -512,18 +525,20 @@ test('natural declaration updates selection, while reference mentions do not', a
   assert.equal(h.state.selectedAssessmentType.value, 'guideline')
 })
 
-test('public-home case switch selects the case type and topic cases keep their full text', async () => {
+test('public-home case switch navigates to fixed read-only details without filling the composer', async () => {
   const h = await harness({ agent: 'topic' })
   const sample = draft.ASSESSMENT_CASES.find(sample => sample.category.startsWith('指南'))
-  h.state.fillCase(sample)
+  h.state.publicCasesReady.value = true
+  h.state.openCase(sample)
   await flush()
   assert.equal(h.props.activeAgent, 'assessment')
-  assert.equal(h.state.selectedAssessmentType.value, 'guideline')
-  assert.equal(h.state.selectedAssessmentScenarioId.value, sample.id)
-  h.state.fillCase(draft.TOPIC_CASES[0])
+  assert.deepEqual(h.events.filter(event => event[0] === 'navigate').at(-1), ['navigate', 'task-detail', `public-case:${sample.id}`])
+  assert.equal(h.state.form.topic, '')
+  h.state.openCase(draft.TOPIC_CASES[0])
   await flush()
-  assert.equal(h.state.form.topic, draft.TOPIC_CASES[0].input)
-  assert.equal(h.state.selectedAssessmentType.value, 'auto')
+  assert.equal(h.props.activeAgent, 'topic')
+  assert.deepEqual(h.events.filter(event => event[0] === 'navigate').at(-1), ['navigate', 'topic-task-detail', `public-case:${draft.TOPIC_CASES[0].id}`])
+  assert.equal(h.calls.length, 0)
 })
 
 test('versioned preview remains authoritative and does not acquire extra frontend requirements', () => {
